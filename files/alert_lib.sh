@@ -140,3 +140,194 @@ _alert_slack_escape() {
 		-e 's/</\&lt;/g' \
 		-e 's/>/\&gt;/g'
 }
+
+# ---------------------------------------------------------------------------
+# MIME Builder
+# ---------------------------------------------------------------------------
+
+# _alert_build_mime text_body html_body — construct multipart/alternative MIME message
+# Writes MIME headers and both text and HTML parts to stdout.
+# Caller is responsible for adding Subject/To/From headers before this output.
+# The boundary uses epoch+PID for uniqueness (sufficient for email context).
+_alert_build_mime() {
+	local text_body="$1" html_body="$2"
+	local boundary
+	boundary="ALERT_$(date +%s)_$$"
+
+	echo "MIME-Version: 1.0"
+	echo "Content-Type: multipart/alternative; boundary=\"$boundary\""
+	echo ""
+	echo "--$boundary"
+	echo "Content-Type: text/plain; charset=UTF-8"
+	echo "Content-Transfer-Encoding: 8bit"
+	echo ""
+	echo "$text_body"
+	echo ""
+	echo "--$boundary"
+	echo "Content-Type: text/html; charset=UTF-8"
+	echo "Content-Transfer-Encoding: base64"
+	echo ""
+	# base64 wraps at 76 chars, satisfying RFC 5321 998-char line limit
+	printf '%s\n' "$html_body" | base64
+	echo ""
+	echo "--${boundary}--"
+}
+
+# ---------------------------------------------------------------------------
+# Email Delivery
+# ---------------------------------------------------------------------------
+
+# _alert_email_local recip subject text_file html_file format
+# Send alert via local MTA (mail/sendmail). Format: text, html, or both.
+# Returns 0 on success, 1 on failure.
+_alert_email_local() {
+	local recip="$1" subject="$2" text_file="$3" html_file="$4" format="${5:-text}"
+	local from="${ALERT_SMTP_FROM:-root@$(hostname -f 2>/dev/null || hostname)}"
+	local sendmail_bin mail_bin
+	sendmail_bin=$(command -v sendmail 2>/dev/null || true)
+	mail_bin=$(command -v mail 2>/dev/null || true)
+
+	case "$format" in
+		text)
+			if [ -z "$mail_bin" ]; then
+				echo "alert_lib: mail binary not found, cannot send alert to $recip." >&2
+				return 1
+			fi
+			"$mail_bin" -s "$subject" "$recip" < "$text_file"
+			return $?
+			;;
+		html)
+			if [ -n "$sendmail_bin" ]; then
+				{
+					echo "From: $from"
+					echo "To: $recip"
+					echo "Subject: $subject"
+					echo "Content-Type: text/html; charset=UTF-8"
+					echo "Content-Transfer-Encoding: base64"
+					echo ""
+					# base64 wraps at 76 chars, satisfying RFC 5321 998-char line limit
+					base64 < "$html_file"
+				} | "$sendmail_bin" -t -oi
+				return $?
+			fi
+			# sendmail not available — fall back to text via mail
+			echo "alert_lib: warning: sendmail not found, falling back to text-only alert for $recip." >&2
+			if [ -z "$mail_bin" ]; then
+				echo "alert_lib: mail binary not found, cannot send alert to $recip." >&2
+				return 1
+			fi
+			"$mail_bin" -s "$subject" "$recip" < "$text_file"
+			return $?
+			;;
+		both)
+			if [ -n "$sendmail_bin" ]; then
+				local text_body html_body
+				text_body=$(cat "$text_file")
+				html_body=$(cat "$html_file")
+				{
+					echo "From: $from"
+					echo "To: $recip"
+					echo "Subject: $subject"
+					_alert_build_mime "$text_body" "$html_body"
+				} | "$sendmail_bin" -t -oi
+				return $?
+			fi
+			# sendmail not available — fall back to text via mail
+			echo "alert_lib: warning: sendmail not found, falling back to text-only alert for $recip." >&2
+			if [ -z "$mail_bin" ]; then
+				echo "alert_lib: mail binary not found, cannot send alert to $recip." >&2
+				return 1
+			fi
+			"$mail_bin" -s "$subject" "$recip" < "$text_file"
+			return $?
+			;;
+		*)
+			echo "alert_lib: unknown format '$format', cannot send alert." >&2
+			return 1
+			;;
+	esac
+}
+
+# _alert_email_relay recip subject msg_file — send via authenticated SMTP relay
+# msg_file must be a complete RFC 822 message (headers + body).
+# TLS handling: smtps:// always uses implicit TLS; smtp://:587 requires STARTTLS;
+# smtp://:25 connects plaintext (for internal relays). Credentials are optional
+# to support auth-free internal relays.
+# Returns 0 on success, 1 on failure.
+_alert_email_relay() {
+	local recip="$1" subject="$2" msg_file="$3"
+
+	if [ -z "${ALERT_SMTP_FROM:-}" ]; then
+		echo "alert_lib: ALERT_SMTP_FROM not set, cannot send relay alert to $recip." >&2
+		return 1
+	fi
+	local curl_bin
+	curl_bin=$(command -v curl 2>/dev/null || true)
+	if [ -z "$curl_bin" ]; then
+		echo "alert_lib: curl not found, cannot send relay alert to $recip." >&2
+		return 1
+	fi
+
+	# build curl arguments
+	local -a curl_args=("--url" "$ALERT_SMTP_RELAY")
+
+	# TLS: smtps:// and smtp://:587 require TLS; smtp://:25 is plain
+	case "$ALERT_SMTP_RELAY" in
+		smtps://*|smtp://*:587|smtp://*:587/*) curl_args+=("--ssl-reqd") ;;
+		smtp://*:25|smtp://*:25/*) ;;  # plain — no TLS for internal relays
+		*) curl_args+=("--ssl-reqd") ;;  # default: require TLS for safety
+	esac
+
+	curl_args+=("--mail-from" "$ALERT_SMTP_FROM" "--mail-rcpt" "$recip")
+
+	# credentials are optional — auth-free internal relays omit them
+	if [ -n "${ALERT_SMTP_USER:-}" ] && [ -n "${ALERT_SMTP_PASS:-}" ]; then
+		curl_args+=("--user" "$ALERT_SMTP_USER:$ALERT_SMTP_PASS")
+	fi
+
+	curl_args+=("--upload-file" "$msg_file")
+
+	local rc=0 curl_stderr
+	curl_stderr=$(mktemp "${ALERT_TMPDIR}/alert_curl_err.XXXXXX")
+	"$curl_bin" "${curl_args[@]}" 2>"$curl_stderr" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		local _err_detail
+		_err_detail=$(head -5 "$curl_stderr" | tr '\n' ' ')
+		echo "alert_lib: SMTP relay to $recip failed (curl exit $rc): $_err_detail" >&2
+		rm -f "$curl_stderr"
+		return 1
+	fi
+	rm -f "$curl_stderr"
+	return 0
+}
+
+# _alert_deliver_email recip subject text_file html_file format
+# Router: ALERT_SMTP_RELAY set → relay path, else → local MTA.
+# Returns 0 on success, 1 on failure.
+_alert_deliver_email() {
+	local recip="$1" subject="$2" text_file="$3" html_file="$4" format="${5:-text}"
+
+	if [ -n "${ALERT_SMTP_RELAY:-}" ]; then
+		# relay path: always build full multipart MIME message
+		local from="${ALERT_SMTP_FROM:-root@$(hostname -f 2>/dev/null || hostname)}"
+		local text_body html_body
+		text_body=$(cat "$text_file")
+		html_body=$(cat "$html_file")
+		local msg_file
+		msg_file=$(mktemp "${ALERT_TMPDIR}/alert_relay_msg.XXXXXX")
+		{
+			echo "From: $from"
+			echo "To: $recip"
+			echo "Subject: $subject"
+			echo "Date: $(date -R 2>/dev/null || date)"
+			_alert_build_mime "$text_body" "$html_body"
+		} > "$msg_file"
+		_alert_email_relay "$recip" "$subject" "$msg_file"
+		local rc=$?
+		rm -f "$msg_file"
+		return $rc
+	fi
+
+	# local MTA path
+	_alert_email_local "$recip" "$subject" "$text_file" "$html_file" "$format"
+}

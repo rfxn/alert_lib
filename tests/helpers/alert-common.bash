@@ -39,3 +39,35 @@ alert_common_setup() {
 alert_teardown() {
 	rm -rf "$TEST_TMPDIR"
 }
+
+# ---------------------------------------------------------------------------
+# Mock binary infrastructure — for testing delivery functions without
+# actually sending email or making HTTP calls.
+# ---------------------------------------------------------------------------
+
+# alert_mock_setup — create mock binary directory and prepend to PATH
+# Call from setup() in test files that need mock binaries.
+# Saves original PATH for restoration in teardown.
+alert_mock_setup() {
+	MOCK_BIN="$TEST_TMPDIR/bin"
+	mkdir -p "$MOCK_BIN"
+	export ALERT_MOCK_DIR="$TEST_TMPDIR"
+	# Mocks first, then real binaries (base64, hostname, date, etc.)
+	export PATH="$MOCK_BIN:/usr/bin:/bin:/usr/sbin:/sbin"
+}
+
+# alert_create_mock name [exit_code] — create a mock binary that captures args and stdin
+# Creates $MOCK_BIN/$name that writes "$@" to $ALERT_MOCK_DIR/${name}_args
+# (one arg per line) and stdin to $ALERT_MOCK_DIR/${name}_stdin.
+# Optional exit_code (default 0).
+alert_create_mock() {
+	local name="$1" rc="${2:-0}"
+	local mock_dir="$ALERT_MOCK_DIR"
+	cat > "$MOCK_BIN/$name" <<-ENDMOCK
+	#!/bin/bash
+	printf '%s\n' "\$@" > "$mock_dir/${name}_args"
+	cat > "$mock_dir/${name}_stdin"
+	exit $rc
+	ENDMOCK
+	chmod +x "$MOCK_BIN/$name"
+}

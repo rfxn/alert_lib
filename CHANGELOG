@@ -2,6 +2,16 @@ alert_lib CHANGELOG
 ====================
 
 - 1.0.0 | Mar 05 2026:
+  [New] MIME builder: _alert_build_mime (multipart/alternative with base64
+      HTML part, ALERT_ boundary prefix, RFC 5321 compliant line lengths)
+  [New] Email delivery: _alert_email_local (mail/sendmail with format-based
+      routing and graceful fallback), _alert_email_relay (curl SMTP with
+      TLS auto-detection and optional auth), _alert_deliver_email (router:
+      ALERT_SMTP_RELAY → relay path, else → local MTA)
+  [New] Test suite 02-email.bats: 29 tests covering MIME builder, local MTA,
+      SMTP relay, delivery router, fallback chains, and error propagation
+  [New] Mock binary infrastructure in alert-common.bash: alert_mock_setup and
+      alert_create_mock for testing delivery functions without real binaries
   [New] Template engine: _alert_tpl_render (awk-based {{VAR}} substitution,
       mawk-compatible) and _alert_tpl_resolve (custom.d/ override resolution)
   [New] Escaping functions: _alert_html_escape (HTML entities via sed),
