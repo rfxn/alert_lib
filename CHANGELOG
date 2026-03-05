@@ -1,2 +1,14 @@
 alert_lib CHANGELOG
 ====================
+
+- 1.0.0 | Mar 05 2026:
+  [New] Template engine: _alert_tpl_render (awk-based {{VAR}} substitution,
+      mawk-compatible) and _alert_tpl_resolve (custom.d/ override resolution)
+  [New] Escaping functions: _alert_html_escape (HTML entities via sed),
+      _alert_json_escape (JSON string escaping via parameter expansion),
+      _alert_telegram_escape (MarkdownV2 19-char set via sed),
+      _alert_slack_escape (mrkdwn &amp; entity escaping via sed)
+  [New] Test suite 01-core.bats: 33 tests covering all 6 functions with
+      negative/false-positive tests for escape ordering and token matching
+  [New] Project scaffolding: library skeleton, batsman test infrastructure,
+      9-OS CI matrix, scaffold validation tests
