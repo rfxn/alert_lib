@@ -1,4 +1,12 @@
 - 1.0.0 | Mar 05 2026:
+  [New] Discord delivery: webhook (_alert_discord_webhook) with HTTP 204
+      empty-body success detection, multipart file upload
+      (_alert_discord_upload) in single POST with payload_json + files[0];
+      router _alert_deliver_discord with ALERT_DISCORD_WEBHOOK_URL env var
+  [New] Discord channel handler (_alert_handle_discord) with built-in
+      channel registration (disabled by default)
+  [New] Test suite 06-discord.bats: 22 tests covering webhook delivery,
+      multipart upload, delivery router, handler, and channel registration
   [New] Telegram delivery: sendMessage (_alert_telegram_message) with
       MarkdownV2 parse mode, sendDocument (_alert_telegram_document) with
       file upload and optional caption; router _alert_deliver_telegram

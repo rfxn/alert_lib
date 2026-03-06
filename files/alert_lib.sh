@@ -775,6 +775,89 @@ _alert_handle_telegram() {
 }
 
 # ---------------------------------------------------------------------------
+# Discord Delivery
+# ---------------------------------------------------------------------------
+
+# _alert_discord_webhook payload_file webhook_url — POST JSON to Discord webhook
+# Discord returns HTTP 204 with empty body on success (no ?wait=true).
+# Returns 0 on success, 1 on failure.
+_alert_discord_webhook() {
+	local payload_file="$1" webhook_url="$2"
+	if [ -z "$webhook_url" ] || ! _alert_validate_url "$webhook_url"; then
+		echo "alert_lib: invalid or empty Discord webhook URL." >&2
+		return 1
+	fi
+	local response
+	response=$(_alert_curl_post "$webhook_url" \
+		-H "Content-Type: application/json" -d @"$payload_file") || return 1
+	# Discord webhooks return HTTP 204 (empty body) on success,
+	# or a message object with "id": when returning content
+	case "$response" in
+		""|*'"id":'*) return 0 ;;
+	esac
+	local api_err
+	api_err=$(printf '%s' "$response" | sed -n 's/.*"message" *: *"\([^"]*\)".*/\1/p')
+	echo "alert_lib: Discord webhook error${api_err:+: $api_err}" >&2
+	return 1
+}
+
+# _alert_discord_upload file_path payload_file webhook_url — multipart file upload
+# Single POST with payload_json + files[0] (unlike Slack's 3-step flow).
+# Returns 0 on success, 1 on failure.
+_alert_discord_upload() {
+	local file_path="$1" payload_file="$2" webhook_url="$3"
+	if [ ! -f "$file_path" ]; then
+		echo "alert_lib: file not found: $file_path" >&2
+		return 1
+	fi
+	if [ -z "$webhook_url" ] || ! _alert_validate_url "$webhook_url"; then
+		echo "alert_lib: invalid or empty Discord webhook URL." >&2
+		return 1
+	fi
+	local response
+	response=$(_alert_curl_post "$webhook_url" \
+		-F "payload_json=<$payload_file" -F "files[0]=@$file_path") || return 1
+	# Same success detection as webhook: empty body or message object
+	case "$response" in
+		""|*'"id":'*) return 0 ;;
+	esac
+	local api_err
+	api_err=$(printf '%s' "$response" | sed -n 's/.*"message" *: *"\([^"]*\)".*/\1/p')
+	echo "alert_lib: Discord upload error${api_err:+: $api_err}" >&2
+	return 1
+}
+
+# _alert_deliver_discord payload_file [attachment_file] — route Discord delivery
+# Uses ALERT_DISCORD_WEBHOOK_URL env var. If attachment exists, uses multipart
+# upload; otherwise plain JSON webhook POST.
+# Returns 0 on success, 1 on failure.
+_alert_deliver_discord() {
+	local payload_file="$1" attachment="${2:-}"
+	if [ -z "${ALERT_DISCORD_WEBHOOK_URL:-}" ]; then
+		echo "alert_lib: ALERT_DISCORD_WEBHOOK_URL not set." >&2
+		return 1
+	fi
+	if [ -n "$attachment" ] && [ -f "$attachment" ]; then
+		_alert_discord_upload "$attachment" "$payload_file" "$ALERT_DISCORD_WEBHOOK_URL"
+	else
+		_alert_discord_webhook "$payload_file" "$ALERT_DISCORD_WEBHOOK_URL"
+	fi
+}
+
+# ---------------------------------------------------------------------------
+# Discord Channel Handler
+# ---------------------------------------------------------------------------
+
+# _alert_handle_discord subject text_file html_file [attachment]
+# Standardized handler wrapper for the Discord channel. Passes text_file
+# as payload and attachment through to _alert_deliver_discord.
+# Ignores subject and html_file (baked into rendered template).
+_alert_handle_discord() {
+	local text_file="$2" attachment="${4:-}"
+	_alert_deliver_discord "$text_file" "$attachment"
+}
+
+# ---------------------------------------------------------------------------
 # Multi-Channel Dispatch
 # ---------------------------------------------------------------------------
 
@@ -868,3 +951,4 @@ alert_dispatch() {
 alert_channel_register "email" "_alert_handle_email"
 alert_channel_register "slack" "_alert_handle_slack"
 alert_channel_register "telegram" "_alert_handle_telegram"
+alert_channel_register "discord" "_alert_handle_discord"
