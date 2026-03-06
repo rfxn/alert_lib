@@ -37,6 +37,84 @@ ALERT_CURL_MAX_TIME="${ALERT_CURL_MAX_TIME:-120}"
 ALERT_TMPDIR="${ALERT_TMPDIR:-${TMPDIR:-/tmp}}"
 
 # ---------------------------------------------------------------------------
+# Channel Registry
+# ---------------------------------------------------------------------------
+
+# _alert_channel_find name — locate channel index by name
+# Linear scan of _ALERT_CHANNEL_NAMES. Sets _ALERT_CHANNEL_IDX on success
+# (avoids subshell fork from stdout return, same pattern as _ALERT_TPL_RESOLVED).
+# Returns 0 if found, 1 if not found.
+_alert_channel_find() {
+	local name="$1"
+	local i
+	_ALERT_CHANNEL_IDX=-1
+	for i in "${!_ALERT_CHANNEL_NAMES[@]}"; do
+		if [ "${_ALERT_CHANNEL_NAMES[$i]}" = "$name" ]; then
+			_ALERT_CHANNEL_IDX=$i
+			return 0
+		fi
+	done
+	return 1
+}
+
+# alert_channel_register name handler_fn — register a delivery channel
+# Appends to parallel indexed arrays. Channel starts disabled (enabled=0).
+# Returns 1 if name is empty, handler_fn is empty, or name already registered.
+alert_channel_register() {
+	local name="$1" handler_fn="$2"
+	if [ -z "$name" ]; then
+		echo "alert_lib: channel name cannot be empty." >&2
+		return 1
+	fi
+	if [ -z "$handler_fn" ]; then
+		echo "alert_lib: handler function cannot be empty for channel '$name'." >&2
+		return 1
+	fi
+	if _alert_channel_find "$name"; then
+		echo "alert_lib: channel '$name' already registered." >&2
+		return 1
+	fi
+	_ALERT_CHANNEL_NAMES+=("$name")
+	_ALERT_CHANNEL_HANDLERS+=("$handler_fn")
+	_ALERT_CHANNEL_ENABLED+=("0")
+	return 0
+}
+
+# alert_channel_enable name — mark channel as active
+# Returns 1 if channel not registered.
+alert_channel_enable() {
+	local name="$1"
+	if ! _alert_channel_find "$name"; then
+		echo "alert_lib: channel '$name' not registered." >&2
+		return 1
+	fi
+	_ALERT_CHANNEL_ENABLED[_ALERT_CHANNEL_IDX]=1
+	return 0
+}
+
+# alert_channel_disable name — mark channel as inactive
+# Returns 1 if channel not registered.
+alert_channel_disable() {
+	local name="$1"
+	if ! _alert_channel_find "$name"; then
+		echo "alert_lib: channel '$name' not registered." >&2
+		return 1
+	fi
+	_ALERT_CHANNEL_ENABLED[_ALERT_CHANNEL_IDX]=0
+	return 0
+}
+
+# alert_channel_enabled name — check if channel is active
+# Returns 0 if enabled, 1 if disabled or not found.
+alert_channel_enabled() {
+	local name="$1"
+	if ! _alert_channel_find "$name"; then
+		return 1
+	fi
+	[ "${_ALERT_CHANNEL_ENABLED[_ALERT_CHANNEL_IDX]}" = "1" ]
+}
+
+# ---------------------------------------------------------------------------
 # Template Engine
 # ---------------------------------------------------------------------------
 
@@ -331,3 +409,113 @@ _alert_deliver_email() {
 	# local MTA path
 	_alert_email_local "$recip" "$subject" "$text_file" "$html_file" "$format"
 }
+
+# ---------------------------------------------------------------------------
+# Email Channel Handler
+# ---------------------------------------------------------------------------
+
+# _alert_handle_email subject text_file html_file [attachment]
+# Standardized handler wrapper for the email channel. Reads delivery config
+# from environment variables and delegates to _alert_deliver_email.
+# ALERT_EMAIL_TO: recipient address (default: root)
+# ALERT_EMAIL_FORMAT: text, html, or both (default: text)
+_alert_handle_email() {
+	local subject="$1" text_file="$2" html_file="$3"
+	local recip="${ALERT_EMAIL_TO:-root}"
+	local format="${ALERT_EMAIL_FORMAT:-text}"
+	_alert_deliver_email "$recip" "$subject" "$text_file" "$html_file" "$format"
+}
+
+# ---------------------------------------------------------------------------
+# Multi-Channel Dispatch
+# ---------------------------------------------------------------------------
+
+# alert_dispatch template_dir subject [channels] [attachment_file]
+# Render per-channel templates and dispatch to all enabled channels.
+# channels: comma-separated channel names or "all" (default: "all").
+# For each enabled channel, resolves $channel.text.tpl (falling back to
+# $channel.message.tpl) and $channel.html.tpl from template_dir, renders
+# via _alert_tpl_render, then calls the channel handler with:
+#   handler_fn subject text_file html_file [attachment]
+# Channels with no matching templates are skipped with a warning.
+# Returns 0 if all dispatched channels succeed, 1 if any fail.
+# Continues dispatching after individual channel failures.
+alert_dispatch() {
+	local template_dir="$1" subject="$2" channels="${3:-all}" attachment="${4:-}"
+	local rc=0
+	local i name handler enabled
+	local text_file html_file
+
+	for i in "${!_ALERT_CHANNEL_NAMES[@]}"; do
+		name="${_ALERT_CHANNEL_NAMES[$i]}"
+		handler="${_ALERT_CHANNEL_HANDLERS[$i]}"
+		enabled="${_ALERT_CHANNEL_ENABLED[$i]}"
+
+		# Skip disabled channels
+		[ "$enabled" = "1" ] || continue
+
+		# Filter by channel name (unless "all")
+		if [ "$channels" != "all" ]; then
+			case ",$channels," in
+				*",$name,"*) ;;
+				*) continue ;;
+			esac
+		fi
+
+		# Resolve text template: try $channel.text.tpl, fall back to $channel.message.tpl
+		text_file=""
+		_alert_tpl_resolve "$template_dir" "${name}.text.tpl"
+		if [ -f "$_ALERT_TPL_RESOLVED" ]; then
+			text_file=$(mktemp "${ALERT_TMPDIR}/alert_${name}_text.XXXXXX")
+			_alert_tpl_render "$_ALERT_TPL_RESOLVED" > "$text_file"
+		else
+			_alert_tpl_resolve "$template_dir" "${name}.message.tpl"
+			if [ -f "$_ALERT_TPL_RESOLVED" ]; then
+				text_file=$(mktemp "${ALERT_TMPDIR}/alert_${name}_text.XXXXXX")
+				_alert_tpl_render "$_ALERT_TPL_RESOLVED" > "$text_file"
+			fi
+		fi
+
+		# Resolve html template (optional)
+		html_file=""
+		_alert_tpl_resolve "$template_dir" "${name}.html.tpl"
+		if [ -f "$_ALERT_TPL_RESOLVED" ]; then
+			html_file=$(mktemp "${ALERT_TMPDIR}/alert_${name}_html.XXXXXX")
+			_alert_tpl_render "$_ALERT_TPL_RESOLVED" > "$html_file"
+		fi
+
+		# Skip channels with no templates
+		if [ -z "$text_file" ] && [ -z "$html_file" ]; then
+			echo "alert_lib: no templates found for channel '$name', skipping." >&2
+			continue
+		fi
+
+		# Create empty placeholders for missing variants so handlers get valid paths
+		if [ -z "$text_file" ]; then
+			text_file=$(mktemp "${ALERT_TMPDIR}/alert_${name}_text.XXXXXX")
+		fi
+		if [ -z "$html_file" ]; then
+			html_file=$(mktemp "${ALERT_TMPDIR}/alert_${name}_html.XXXXXX")
+		fi
+
+		# Call handler
+		if ! "$handler" "$subject" "$text_file" "$html_file" "$attachment"; then
+			echo "alert_lib: channel '$name' delivery failed." >&2
+			rc=1
+		fi
+
+		# Clean up rendered temp files
+		rm -f "$text_file" "$html_file"
+	done
+
+	return $rc
+}
+
+# ---------------------------------------------------------------------------
+# Built-in Channel Registration
+# ---------------------------------------------------------------------------
+
+# Register email channel — consumers enable via alert_channel_enable "email"
+# Other built-in channels (slack, telegram, discord) registered in their
+# respective delivery sections.
+alert_channel_register "email" "_alert_handle_email"

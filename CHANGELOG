@@ -2,6 +2,21 @@ alert_lib CHANGELOG
 ====================
 
 - 1.0.0 | Mar 05 2026:
+  [New] Channel registry: alert_channel_register, alert_channel_enable,
+      alert_channel_disable, alert_channel_enabled with parallel indexed
+      arrays and _alert_channel_find lookup helper
+  [New] Multi-channel dispatch: alert_dispatch with per-channel template
+      rendering (.text.tpl/.message.tpl/.html.tpl), custom.d/ override
+      support, comma-separated channel filtering, and fault-tolerant
+      dispatch (continues after individual channel failures)
+  [New] Email channel handler: _alert_handle_email wrapper bridging
+      standardized handler interface to _alert_deliver_email with
+      ALERT_EMAIL_TO and ALERT_EMAIL_FORMAT env var config
+  [New] Built-in email channel registration at source time (disabled
+      by default; consumers enable via alert_channel_enable "email")
+  [New] Test suite 03-registry.bats: 36 tests covering channel
+      registration, enable/disable, dispatch loop, template rendering,
+      channel filtering, error propagation, and temp file cleanup
   [New] MIME builder: _alert_build_mime (multipart/alternative with base64
       HTML part, ALERT_ boundary prefix, RFC 5321 compliant line lengths)
   [New] Email delivery: _alert_email_local (mail/sendmail with format-based
