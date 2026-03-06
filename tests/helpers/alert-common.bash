@@ -71,3 +71,55 @@ alert_create_mock() {
 	ENDMOCK
 	chmod +x "$MOCK_BIN/$name"
 }
+
+# alert_create_curl_mock [exit_code] — create a response-aware curl mock
+# Creates $MOCK_BIN/curl that:
+#   - Captures all args to $ALERT_MOCK_DIR/curl_args (one per line)
+#   - Captures stdin to $ALERT_MOCK_DIR/curl_stdin
+#   - Outputs contents of $ALERT_MOCK_DIR/curl_response to stdout (if file exists)
+#   - Exits with specified code (default 0)
+# Tests set the response before calling:
+#   echo '{"ok":true}' > "$ALERT_MOCK_DIR/curl_response"
+alert_create_curl_mock() {
+	local rc="${1:-0}"
+	local mock_dir="$ALERT_MOCK_DIR"
+	cat > "$MOCK_BIN/curl" <<-ENDMOCK
+	#!/bin/bash
+	printf '%s\n' "\$@" > "$mock_dir/curl_args"
+	cat > "$mock_dir/curl_stdin"
+	if [ -f "$mock_dir/curl_response" ]; then
+		cat "$mock_dir/curl_response"
+	fi
+	exit $rc
+	ENDMOCK
+	chmod +x "$MOCK_BIN/curl"
+}
+
+# alert_create_curl_routing_mock — URL-routing curl mock for multi-step API tests
+# Creates $MOCK_BIN/curl that routes responses based on URL pattern.
+# Response files: $ALERT_MOCK_DIR/curl_response_N (N=1,2,3... in call order)
+# Args captured per-call: $ALERT_MOCK_DIR/curl_args_N
+# Call counter tracked in $ALERT_MOCK_DIR/curl_call_count
+alert_create_curl_routing_mock() {
+	local mock_dir="$ALERT_MOCK_DIR"
+	echo "0" > "$mock_dir/curl_call_count"
+	cat > "$MOCK_BIN/curl" <<-'ENDMOCK'
+	#!/bin/bash
+	mock_dir="MOCK_DIR_PLACEHOLDER"
+	count=$(cat "$mock_dir/curl_call_count")
+	count=$((count + 1))
+	echo "$count" > "$mock_dir/curl_call_count"
+	printf '%s\n' "$@" > "$mock_dir/curl_args_${count}"
+	cat > "$mock_dir/curl_stdin_${count}"
+	if [ -f "$mock_dir/curl_response_${count}" ]; then
+		cat "$mock_dir/curl_response_${count}"
+	fi
+	exit_file="$mock_dir/curl_exit_${count}"
+	if [ -f "$exit_file" ]; then
+		exit "$(cat "$exit_file")"
+	fi
+	exit 0
+	ENDMOCK
+	sed -i "s|MOCK_DIR_PLACEHOLDER|$mock_dir|g" "$MOCK_BIN/curl"
+	chmod +x "$MOCK_BIN/curl"
+}

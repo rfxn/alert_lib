@@ -220,6 +220,49 @@ _alert_slack_escape() {
 }
 
 # ---------------------------------------------------------------------------
+# HTTP Utilities
+# ---------------------------------------------------------------------------
+
+# _alert_validate_url url — validate URL has http:// or https:// scheme
+# Returns 0 if valid, 1 otherwise.
+_alert_validate_url() {
+	case "${1:-}" in
+		http://*|https://*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# _alert_curl_post url [curl_flags...] — HTTP POST via curl with standard timeouts
+# Discovers curl via command -v. Adds -s, --connect-timeout, --max-time, -X POST.
+# Remaining arguments pass through as extra curl flags (caller provides -d/-H/-F).
+# Stdout: curl response body (caller captures via $()).
+# Stderr: error detail on failure.
+# Returns 0 on success, 1 on failure.
+_alert_curl_post() {
+	local url="$1"
+	shift
+	local curl_bin
+	curl_bin=$(command -v curl 2>/dev/null || true)
+	if [ -z "$curl_bin" ]; then
+		echo "alert_lib: curl not found, cannot POST to $url." >&2
+		return 1
+	fi
+	local rc=0 curl_stderr
+	curl_stderr=$(mktemp "${ALERT_TMPDIR}/alert_curl_err.XXXXXX")
+	"$curl_bin" -s --connect-timeout "$ALERT_CURL_TIMEOUT" --max-time "$ALERT_CURL_MAX_TIME" \
+		-X POST "$url" "$@" 2>"$curl_stderr" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		local _err_detail
+		_err_detail=$(head -5 "$curl_stderr" | tr '\n' ' ')
+		echo "alert_lib: POST to $url failed (curl exit $rc): $_err_detail" >&2
+		rm -f "$curl_stderr"
+		return 1
+	fi
+	rm -f "$curl_stderr"
+	return 0
+}
+
+# ---------------------------------------------------------------------------
 # MIME Builder
 # ---------------------------------------------------------------------------
 
@@ -427,6 +470,177 @@ _alert_handle_email() {
 }
 
 # ---------------------------------------------------------------------------
+# Slack Delivery
+# ---------------------------------------------------------------------------
+
+# _alert_slack_webhook payload_file webhook_url — POST JSON to Slack incoming webhook
+# Returns 0 on success, 1 on failure.
+_alert_slack_webhook() {
+	local payload_file="$1" webhook_url="$2"
+	if [ -z "$webhook_url" ] || ! _alert_validate_url "$webhook_url"; then
+		echo "alert_lib: invalid or empty Slack webhook URL." >&2
+		return 1
+	fi
+	local response
+	response=$(_alert_curl_post "$webhook_url" \
+		-H "Content-Type: application/json" -d @"$payload_file") || return 1
+	# Slack webhooks return "ok" on success, error string on failure
+	if [ "$response" != "ok" ]; then
+		echo "alert_lib: Slack webhook error: $response" >&2
+		return 1
+	fi
+	return 0
+}
+
+# _alert_slack_post_message payload_file token channel — POST to chat.postMessage API
+# Injects "channel" field into JSON payload, sends to Slack Web API.
+# Returns 0 on success, 1 on failure.
+_alert_slack_post_message() {
+	local payload_file="$1" token="$2" channel="$3"
+	if [ -z "$token" ]; then
+		echo "alert_lib: Slack token is required for bot mode." >&2
+		return 1
+	fi
+	if [ -z "$channel" ]; then
+		echo "alert_lib: Slack channel is required for bot mode." >&2
+		return 1
+	fi
+	# Inject "channel" field after opening brace
+	local modified_payload
+	modified_payload=$(mktemp "${ALERT_TMPDIR}/alert_slack_msg.XXXXXX")
+	sed "s/^{/{\"channel\":\"$channel\",/" "$payload_file" > "$modified_payload"
+	local response
+	response=$(_alert_curl_post "https://slack.com/api/chat.postMessage" \
+		-H "Authorization: Bearer $token" \
+		-H "Content-Type: application/json" \
+		-d @"$modified_payload") || { rm -f "$modified_payload"; return 1; }
+	rm -f "$modified_payload"
+	# Slack API returns {"ok":true,...} on success
+	case "$response" in
+		*'"ok":true'*) return 0 ;;
+	esac
+	local api_err
+	api_err=$(printf '%s' "$response" | sed -n 's/.*"error" *: *"\([^"]*\)".*/\1/p')
+	echo "alert_lib: Slack chat.postMessage error${api_err:+: $api_err}" >&2
+	return 1
+}
+
+# _alert_slack_upload file_path title token channels — 3-step Slack file upload
+# Step 1: files.getUploadURLExternal → get upload_url + file_id
+# Step 2: POST file to upload_url
+# Step 3: files.completeUploadExternal → finalize and share to channels
+# Extracted from LMD functions. Returns 0 on success, 1 on failure.
+_alert_slack_upload() {
+	local file_path="$1" title="$2" token="$3" channels="$4"
+	if [ ! -f "$file_path" ]; then
+		echo "alert_lib: file not found: $file_path" >&2
+		return 1
+	fi
+	if [ -z "$token" ]; then
+		echo "alert_lib: Slack token is required for file upload." >&2
+		return 1
+	fi
+	local fsize filename
+	fsize=$(wc -c < "$file_path")
+	fsize="${fsize##* }"  # trim whitespace (some wc implementations pad)
+	filename="${file_path##*/}"
+
+	# Step 1: get upload URL
+	local url_response upload_url file_id
+	url_response=$(_alert_curl_post "https://slack.com/api/files.getUploadURLExternal" \
+		-H "Authorization: Bearer $token" \
+		-d "filename=$filename" \
+		-d "length=$fsize") || return 1
+	case "$url_response" in
+		*'"ok":true'*) ;;
+		*)
+			local api_err
+			api_err=$(printf '%s' "$url_response" | sed -n 's/.*"error" *: *"\([^"]*\)".*/\1/p')
+			echo "alert_lib: Slack getUploadURLExternal error${api_err:+: $api_err}" >&2
+			return 1
+			;;
+	esac
+	upload_url=$(printf '%s' "$url_response" | sed -n 's/.*"upload_url" *: *"\([^"]*\)".*/\1/p')
+	file_id=$(printf '%s' "$url_response" | sed -n 's/.*"file_id" *: *"\([^"]*\)".*/\1/p')
+
+	# Step 2: upload file content
+	_alert_curl_post "$upload_url" -F "file=@$file_path" > /dev/null || {
+		echo "alert_lib: Slack file upload to presigned URL failed." >&2
+		return 1
+	}
+
+	# Step 3: complete upload and share to channels
+	local escaped_title complete_response
+	escaped_title=$(_alert_json_escape "$title")
+	complete_response=$(_alert_curl_post "https://slack.com/api/files.completeUploadExternal" \
+		-H "Authorization: Bearer $token" \
+		-H "Content-Type: application/json" \
+		-d "{\"files\":[{\"id\":\"$file_id\",\"title\":\"$escaped_title\"}],\"channels\":\"$channels\"}") || return 1
+	case "$complete_response" in
+		*'"ok":true'*) return 0 ;;
+	esac
+	local complete_err
+	complete_err=$(printf '%s' "$complete_response" | sed -n 's/.*"error" *: *"\([^"]*\)".*/\1/p')
+	echo "alert_lib: Slack completeUploadExternal error${complete_err:+: $complete_err}" >&2
+	return 1
+}
+
+# _alert_deliver_slack payload_file [attachment_file] — route Slack delivery
+# ALERT_SLACK_MODE: webhook (default) or bot.
+# webhook mode: uses ALERT_SLACK_WEBHOOK_URL
+# bot mode: uses ALERT_SLACK_TOKEN + ALERT_SLACK_CHANNEL
+# Returns 0 on success, 1 on failure.
+_alert_deliver_slack() {
+	local payload_file="$1" attachment="${2:-}"
+	local mode="${ALERT_SLACK_MODE:-webhook}"
+
+	case "$mode" in
+		webhook)
+			if [ -z "${ALERT_SLACK_WEBHOOK_URL:-}" ]; then
+				echo "alert_lib: ALERT_SLACK_WEBHOOK_URL not set." >&2
+				return 1
+			fi
+			if [ -n "$attachment" ]; then
+				echo "alert_lib: warning: Slack webhooks cannot upload files, attachment skipped." >&2
+			fi
+			_alert_slack_webhook "$payload_file" "$ALERT_SLACK_WEBHOOK_URL"
+			;;
+		bot)
+			if [ -z "${ALERT_SLACK_TOKEN:-}" ]; then
+				echo "alert_lib: ALERT_SLACK_TOKEN not set." >&2
+				return 1
+			fi
+			if [ -z "${ALERT_SLACK_CHANNEL:-}" ]; then
+				echo "alert_lib: ALERT_SLACK_CHANNEL not set." >&2
+				return 1
+			fi
+			_alert_slack_post_message "$payload_file" "$ALERT_SLACK_TOKEN" "$ALERT_SLACK_CHANNEL" || return 1
+			if [ -n "$attachment" ] && [ -f "$attachment" ]; then
+				_alert_slack_upload "$attachment" "${attachment##*/}" "$ALERT_SLACK_TOKEN" "$ALERT_SLACK_CHANNEL" || return 1
+			fi
+			return 0
+			;;
+		*)
+			echo "alert_lib: unknown ALERT_SLACK_MODE '$mode'." >&2
+			return 1
+			;;
+	esac
+}
+
+# ---------------------------------------------------------------------------
+# Slack Channel Handler
+# ---------------------------------------------------------------------------
+
+# _alert_handle_slack subject text_file html_file [attachment]
+# Standardized handler wrapper for the Slack channel. The rendered text_file
+# (from slack.text.tpl or slack.message.tpl) is the JSON payload for Slack.
+# Ignores subject and html_file (already baked into rendered template).
+_alert_handle_slack() {
+	local text_file="$2" attachment="${4:-}"
+	_alert_deliver_slack "$text_file" "$attachment"
+}
+
+# ---------------------------------------------------------------------------
 # Multi-Channel Dispatch
 # ---------------------------------------------------------------------------
 
@@ -515,7 +729,7 @@ alert_dispatch() {
 # Built-in Channel Registration
 # ---------------------------------------------------------------------------
 
-# Register email channel — consumers enable via alert_channel_enable "email"
-# Other built-in channels (slack, telegram, discord) registered in their
-# respective delivery sections.
+# Register built-in channels — consumers enable via alert_channel_enable "<name>"
+# All built-in channels start disabled. Consuming projects enable the ones they need.
 alert_channel_register "email" "_alert_handle_email"
+alert_channel_register "slack" "_alert_handle_slack"

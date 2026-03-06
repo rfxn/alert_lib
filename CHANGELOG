@@ -2,6 +2,20 @@ alert_lib CHANGELOG
 ====================
 
 - 1.0.0 | Mar 05 2026:
+  [New] Slack delivery: webhook (_alert_slack_webhook), bot API
+      (_alert_slack_post_message), 3-step file upload (_alert_slack_upload);
+      router _alert_deliver_slack with ALERT_SLACK_MODE webhook|bot
+  [New] HTTP utility: _alert_curl_post shared POST helper with configurable
+      timeouts (ALERT_CURL_TIMEOUT, ALERT_CURL_MAX_TIME), stderr capture,
+      and error detail logging
+  [New] URL validation: _alert_validate_url for http/https URL checking
+  [New] Slack channel handler (_alert_handle_slack) with built-in channel
+      registration (disabled by default)
+  [New] Test suite 04-slack.bats: tests covering HTTP utilities, Slack
+      webhook, bot API, 3-step upload, delivery router, handler, and
+      channel registration
+  [New] Test helper: alert_create_curl_mock and alert_create_curl_routing_mock
+      for response-aware and multi-step API curl mocking
   [New] Channel registry: alert_channel_register, alert_channel_enable,
       alert_channel_disable, alert_channel_enabled with parallel indexed
       arrays and _alert_channel_find lookup helper
