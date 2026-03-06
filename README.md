@@ -1,7 +1,7 @@
 # alert_lib — Multi-Channel Transactional Alerting for Bash
 
 [![CI](https://github.com/rfxn/alert_lib/actions/workflows/ci.yml/badge.svg)](https://github.com/rfxn/alert_lib/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/rfxn/alert_lib)
+[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/rfxn/alert_lib)
 [![Bash](https://img.shields.io/badge/bash-4.1%2B-green.svg)](https://www.gnu.org/software/bash/)
 [![License](https://img.shields.io/badge/license-GPL%20v2-orange.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 
@@ -504,17 +504,17 @@ payload structure and `{{VAR}}` tokens for your event data.
 
 ## Testing
 
-262 tests across 8 BATS files:
+247 tests across 8 BATS files:
 
 | File | Tests | Coverage |
 |------|-------|----------|
 | `00-scaffold.bats` | 3 | Library loading, version, source guard |
-| `01-core.bats` | 33 | Template engine, all 4 escape functions, false-positive tests |
-| `02-email.bats` | 56 | MIME builder, local MTA, SMTP relay, delivery router, fallbacks |
-| `03-registry.bats` | 40 | Channel register/enable/disable, dispatch, template rendering |
-| `04-slack.bats` | 45 | HTTP utilities, webhook, bot API, 3-step upload, handler |
+| `01-core.bats` | 38 | Template engine, escape functions, URL redaction, false-positive tests |
+| `02-email.bats` | 38 | MIME builder, local MTA, SMTP relay, credential hiding, delivery router |
+| `03-registry.bats` | 36 | Channel register/enable/disable, dispatch, template rendering |
+| `04-slack.bats` | 46 | HTTP utilities, webhook, bot API, 3-step upload, error redaction |
 | `05-telegram.bats` | 35 | API helper security, sendMessage, sendDocument, handler |
-| `06-discord.bats` | 22 | Webhook, multipart upload, delivery router, handler |
+| `06-discord.bats` | 23 | Webhook, multipart upload, delivery router, error redaction |
 | `07-digest.bats` | 28 | Spool append, digest check, flush, callback, integration |
 
 ```bash
