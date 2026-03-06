@@ -220,6 +220,15 @@ teardown() {
 	[ "${_ALERT_CHANNEL_ENABLED[$_ALERT_CHANNEL_IDX]}" = "0" ]
 }
 
+@test "curl_post: error output does not contain Discord webhook token" {
+	alert_create_curl_mock 7
+	run _alert_curl_post "https://discord.com/api/webhooks/123456789/abcSecretToken"
+	[ "$status" -eq 1 ]
+	# Token must be redacted in error message
+	[[ "$output" != *"abcSecretToken"* ]]
+	[[ "$output" == *"[REDACTED]"* ]]
+}
+
 @test "handle_discord: handler function is _alert_handle_discord" {
 	unset _ALERT_LIB_LOADED
 	_ALERT_CHANNEL_NAMES=()

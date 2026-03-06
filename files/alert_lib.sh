@@ -21,7 +21,7 @@
 _ALERT_LIB_LOADED=1
 
 # shellcheck disable=SC2034
-ALERT_LIB_VERSION="1.0.1"
+ALERT_LIB_VERSION="1.0.2"
 
 # Channel registry — consuming projects populate via alert_channel_register()
 # Uses parallel indexed arrays instead of declare -A to avoid scope issues
@@ -232,6 +232,21 @@ _alert_validate_url() {
 	esac
 }
 
+# _alert_redact_url url — redact embedded tokens from webhook URLs
+# Slack webhooks: https://hooks.slack.com/services/T.../B.../TOKEN → .../[REDACTED]
+# Discord webhooks: https://discord.com/api/webhooks/ID/TOKEN → .../[REDACTED]
+# Non-secret URLs passed through unchanged.
+_alert_redact_url() {
+	local url="$1"
+	if [[ "$url" == *"hooks.slack.com/services/"* ]]; then
+		printf '%s' "${url%/*}/[REDACTED]"
+	elif [[ "$url" == *"discord.com/api/webhooks/"* ]] || [[ "$url" == *"discordapp.com/api/webhooks/"* ]]; then
+		printf '%s' "${url%/*}/[REDACTED]"
+	else
+		printf '%s' "$url"
+	fi
+}
+
 # _alert_curl_post url [curl_flags...] — HTTP POST via curl with standard timeouts
 # Discovers curl via command -v. Adds -s, --connect-timeout, --max-time, -X POST.
 # Remaining arguments pass through as extra curl flags (caller provides -d/-H/-F).
@@ -244,7 +259,7 @@ _alert_curl_post() {
 	local curl_bin
 	curl_bin=$(command -v curl 2>/dev/null || true)
 	if [ -z "$curl_bin" ]; then
-		echo "alert_lib: curl not found, cannot POST to $url." >&2
+		echo "alert_lib: curl not found, cannot POST to $(_alert_redact_url "$url")." >&2
 		return 1
 	fi
 	local rc=0 curl_stderr
@@ -254,7 +269,7 @@ _alert_curl_post() {
 	if [ "$rc" -ne 0 ]; then
 		local _err_detail
 		_err_detail=$(head -5 "$curl_stderr" | tr '\n' ' ')
-		echo "alert_lib: POST to $url failed (curl exit $rc): $_err_detail" >&2
+		echo "alert_lib: POST to $(_alert_redact_url "$url") failed (curl exit $rc): $_err_detail" >&2
 		rm -f "$curl_stderr"
 		return 1
 	fi
@@ -415,7 +430,7 @@ _alert_email_relay() {
 	fi
 
 	# build curl arguments
-	local -a curl_args=("--url" "$ALERT_SMTP_RELAY")
+	local -a curl_args=("-s" "--url" "$ALERT_SMTP_RELAY")
 
 	# TLS: smtps:// and smtp://:587 require TLS; smtp://:25 is plain
 	case "$ALERT_SMTP_RELAY" in
@@ -426,9 +441,14 @@ _alert_email_relay() {
 
 	curl_args+=("--mail-from" "$ALERT_SMTP_FROM" "--mail-rcpt" "$recip")
 
-	# credentials are optional — auth-free internal relays omit them
+	# credentials via -K config file to keep them out of process listing
+	# (same pattern as _alert_telegram_api)
+	local smtp_cfg=""
 	if [ -n "${ALERT_SMTP_USER:-}" ] && [ -n "${ALERT_SMTP_PASS:-}" ]; then
-		curl_args+=("--user" "$ALERT_SMTP_USER:$ALERT_SMTP_PASS")
+		smtp_cfg=$(mktemp "${ALERT_TMPDIR}/alert_smtp_auth.XXXXXX")
+		chmod 600 "$smtp_cfg"
+		printf 'user = "%s:%s"\n' "$ALERT_SMTP_USER" "$ALERT_SMTP_PASS" > "$smtp_cfg"
+		curl_args+=("-K" "$smtp_cfg")
 	fi
 
 	curl_args+=("--upload-file" "$msg_file")
@@ -440,10 +460,10 @@ _alert_email_relay() {
 		local _err_detail
 		_err_detail=$(head -5 "$curl_stderr" | tr '\n' ' ')
 		echo "alert_lib: SMTP relay to $recip failed (curl exit $rc): $_err_detail" >&2
-		rm -f "$curl_stderr"
+		rm -f "$curl_stderr" "$smtp_cfg"
 		return 1
 	fi
-	rm -f "$curl_stderr"
+	rm -f "$curl_stderr" "$smtp_cfg"
 	return 0
 }
 

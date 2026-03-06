@@ -127,6 +127,15 @@ teardown() {
 	[[ "$output" == *"curl exit 7"* ]]
 }
 
+@test "curl_post: error output does not contain Slack webhook token" {
+	alert_create_curl_mock 7
+	run _alert_curl_post "https://hooks.slack.com/services/T00000000/B00000000/xyzSecretToken"
+	[ "$status" -eq 1 ]
+	# Token must be redacted in error message
+	[[ "$output" != *"xyzSecretToken"* ]]
+	[[ "$output" == *"[REDACTED]"* ]]
+}
+
 @test "curl_post: cleans up stderr temp file on success" {
 	echo "ok" > "$ALERT_MOCK_DIR/curl_response"
 	_alert_curl_post "https://example.com/api" > /dev/null

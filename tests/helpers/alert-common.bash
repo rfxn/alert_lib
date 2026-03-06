@@ -86,6 +86,14 @@ alert_create_curl_mock() {
 	cat > "$MOCK_BIN/curl" <<-ENDMOCK
 	#!/bin/bash
 	printf '%s\n' "\$@" > "$mock_dir/curl_args"
+	# Capture -K config file contents if present
+	_prev=""
+	for _a in "\$@"; do
+		if [ "\$_prev" = "-K" ] && [ -f "\$_a" ]; then
+			cat "\$_a" > "$mock_dir/curl_kconfig"
+		fi
+		_prev="\$_a"
+	done
 	cat > "$mock_dir/curl_stdin"
 	if [ -f "$mock_dir/curl_response" ]; then
 		cat "$mock_dir/curl_response"

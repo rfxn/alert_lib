@@ -201,16 +201,41 @@ teardown() {
 	[[ "$args" != *"--ssl-reqd"* ]]
 }
 
-@test "email_relay: includes credentials when ALERT_SMTP_USER/PASS set" {
+@test "email_relay: uses -K config file for credentials when ALERT_SMTP_USER/PASS set" {
 	export ALERT_SMTP_RELAY="smtps://smtp.example.com:465"
 	export ALERT_SMTP_USER="myuser"
 	export ALERT_SMTP_PASS="mypass"
+	# Use response-aware mock that captures -K config file contents
+	alert_create_curl_mock
 	run _alert_email_relay "user@test.com" "Test" "$TEST_TMPDIR/text.txt"
 	[ "$status" -eq 0 ]
 	local args
 	args=$(cat "$ALERT_MOCK_DIR/curl_args")
-	[[ "$args" == *"--user"* ]]
-	[[ "$args" == *"myuser:mypass"* ]]
+	# Credentials must NOT be on command line
+	[[ "$args" != *"--user"* ]]
+	[[ "$args" != *"myuser:mypass"* ]]
+	# Config file used instead
+	[[ "$args" == *"-K"* ]]
+	# Config file contains credentials
+	[ -f "$ALERT_MOCK_DIR/curl_kconfig" ]
+	local kcfg
+	kcfg=$(cat "$ALERT_MOCK_DIR/curl_kconfig")
+	[[ "$kcfg" == *"myuser:mypass"* ]]
+}
+
+@test "email_relay: SMTP credentials not visible in curl arguments" {
+	export ALERT_SMTP_RELAY="smtps://smtp.example.com:465"
+	export ALERT_SMTP_USER="s3cretUser"
+	export ALERT_SMTP_PASS="s3cretPass"
+	alert_create_curl_mock
+	run _alert_email_relay "user@test.com" "Test" "$TEST_TMPDIR/text.txt"
+	[ "$status" -eq 0 ]
+	local args
+	args=$(cat "$ALERT_MOCK_DIR/curl_args")
+	# Neither username nor password appear in process-visible args
+	[[ "$args" != *"s3cretUser"* ]]
+	[[ "$args" != *"s3cretPass"* ]]
+	[[ "$args" != *"--user"* ]]
 }
 
 @test "email_relay: omits credentials when ALERT_SMTP_USER/PASS unset" {
@@ -221,6 +246,7 @@ teardown() {
 	local args
 	args=$(cat "$ALERT_MOCK_DIR/curl_args")
 	[[ "$args" != *"--user"* ]]
+	[[ "$args" != *"-K"* ]]
 }
 
 @test "email_relay: missing ALERT_SMTP_FROM returns 1 without calling curl" {

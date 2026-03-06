@@ -274,3 +274,37 @@ teardown() {
 	# Must be &amp;&lt; not &amp;lt;
 	[ "$output" = "&amp;&lt;" ]
 }
+
+# ---------------------------------------------------------------------------
+# _alert_redact_url
+# ---------------------------------------------------------------------------
+
+@test "redact_url: passes non-secret Slack API URL unchanged" {
+	run _alert_redact_url "https://slack.com/api/chat.postMessage"
+	[ "$status" -eq 0 ]
+	[ "$output" = "https://slack.com/api/chat.postMessage" ]
+}
+
+@test "redact_url: redacts Slack webhook token" {
+	run _alert_redact_url "https://hooks.slack.com/services/T00000000/B00000000/xyzSecretToken"
+	[ "$status" -eq 0 ]
+	[ "$output" = "https://hooks.slack.com/services/T00000000/B00000000/[REDACTED]" ]
+}
+
+@test "redact_url: redacts Discord webhook token" {
+	run _alert_redact_url "https://discord.com/api/webhooks/123456789/abcSecretToken"
+	[ "$status" -eq 0 ]
+	[ "$output" = "https://discord.com/api/webhooks/123456789/[REDACTED]" ]
+}
+
+@test "redact_url: redacts discordapp.com webhook token" {
+	run _alert_redact_url "https://discordapp.com/api/webhooks/123456789/abcSecretToken"
+	[ "$status" -eq 0 ]
+	[ "$output" = "https://discordapp.com/api/webhooks/123456789/[REDACTED]" ]
+}
+
+@test "redact_url: passes generic HTTPS URL unchanged" {
+	run _alert_redact_url "https://example.com/api/endpoint"
+	[ "$status" -eq 0 ]
+	[ "$output" = "https://example.com/api/endpoint" ]
+}
