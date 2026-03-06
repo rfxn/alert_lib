@@ -858,6 +858,133 @@ _alert_handle_discord() {
 }
 
 # ---------------------------------------------------------------------------
+# Digest/Spool System
+# ---------------------------------------------------------------------------
+
+# _alert_spool_append data_file spool_file — append timestamped entries to digest spool
+# Prepends current epoch to each non-blank line of data_file and appends to
+# spool_file under exclusive flock (10s timeout).
+# No-op if data_file is empty or missing (not an error condition).
+# Returns 0 on success, 1 on failure.
+_alert_spool_append() {
+	local data_file="$1" spool_file="$2"
+	if [ ! -f "$data_file" ] || [ ! -s "$data_file" ]; then
+		return 0
+	fi
+	if [ -z "$spool_file" ]; then
+		echo "alert_lib: spool_file argument is required." >&2
+		return 1
+	fi
+	local flock_bin
+	flock_bin=$(command -v flock 2>/dev/null || true)
+	if [ -z "$flock_bin" ]; then
+		echo "alert_lib: flock not found, cannot append to spool." >&2
+		return 1
+	fi
+	local now lock_file
+	now=$(date +%s)
+	lock_file="${spool_file}.lock"
+	(
+		"$flock_bin" -x -w 10 200 || {
+			echo "alert_lib: spool lock timeout, skipping append." >&2
+			exit 1
+		}
+		while IFS= read -r _line; do
+			[ -z "$_line" ] && continue
+			echo "${now}|${_line}"
+		done < "$data_file" >> "$spool_file"
+	) 200>"$lock_file"
+}
+
+# _alert_digest_check spool_file interval flush_callback — flush spool if age >= interval
+# Reads first line's epoch for age check (optimistic, no lock needed — worst
+# case is delayed flush). If age >= interval seconds, calls _alert_digest_flush.
+# No-op if spool is empty, missing, or has no valid epoch.
+# Returns 0 on success (including no-op), propagates flush exit code on flush.
+_alert_digest_check() {
+	local spool_file="$1" interval="$2" flush_callback="$3"
+	if [ -z "$spool_file" ]; then
+		echo "alert_lib: spool_file argument is required." >&2
+		return 1
+	fi
+	if [ -z "$interval" ]; then
+		echo "alert_lib: interval argument is required." >&2
+		return 1
+	fi
+	if [ -z "$flush_callback" ]; then
+		echo "alert_lib: flush_callback argument is required." >&2
+		return 1
+	fi
+	if [ ! -f "$spool_file" ] || [ ! -s "$spool_file" ]; then
+		return 0
+	fi
+	local first_epoch
+	IFS='|' read -r first_epoch _ < "$spool_file"
+	if [ -z "$first_epoch" ]; then
+		return 0
+	fi
+	local now
+	now=$(date +%s)
+	if [ $((now - first_epoch)) -ge "$interval" ]; then
+		_alert_digest_flush "$spool_file" "$flush_callback"
+		return $?
+	fi
+	return 0
+}
+
+# _alert_digest_flush spool_file flush_callback — force-flush accumulated entries
+# Under exclusive flock: strips epoch prefix (cut -d'|' -f2-), copies to temp
+# flush file, truncates spool (preserves inode). Releases lock before calling
+# flush_callback to avoid holding flock during delivery.
+# Callback receives one argument: path to temp file with flushed entries.
+# No-op if spool is empty or missing.
+# Returns callback's exit code (0 on success, non-zero on failure).
+_alert_digest_flush() {
+	local spool_file="$1" flush_callback="$2"
+	if [ -z "$spool_file" ]; then
+		echo "alert_lib: spool_file argument is required." >&2
+		return 1
+	fi
+	if [ -z "$flush_callback" ]; then
+		echo "alert_lib: flush_callback argument is required." >&2
+		return 1
+	fi
+	if [ ! -f "$spool_file" ] || [ ! -s "$spool_file" ]; then
+		return 0
+	fi
+	local flock_bin
+	flock_bin=$(command -v flock 2>/dev/null || true)
+	if [ -z "$flock_bin" ]; then
+		echo "alert_lib: flock not found, cannot flush digest." >&2
+		return 1
+	fi
+	local lock_file flush_file
+	lock_file="${spool_file}.lock"
+	flush_file=$(mktemp "${ALERT_TMPDIR}/alert_digest_flush.XXXXXX")
+	(
+		"$flock_bin" -x -w 10 200 || {
+			echo "alert_lib: digest flush lock timeout." >&2
+			exit 1
+		}
+		# Re-check spool non-empty under lock (another process may have flushed)
+		if [ ! -s "$spool_file" ]; then
+			exit 0
+		fi
+		# Strip epoch prefix — callback expects original data format
+		cut -d'|' -f2- "$spool_file" > "$flush_file"
+		# Truncate spool (preserves inode for inotifywait/tail -f consumers)
+		: > "$spool_file"
+	) 200>"$lock_file"
+	# Call callback OUTSIDE lock to avoid holding flock during delivery
+	local rc=0
+	if [ -s "$flush_file" ]; then
+		"$flush_callback" "$flush_file" || rc=$?
+	fi
+	rm -f "$flush_file"
+	return $rc
+}
+
+# ---------------------------------------------------------------------------
 # Multi-Channel Dispatch
 # ---------------------------------------------------------------------------
 

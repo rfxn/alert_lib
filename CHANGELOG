@@ -2,6 +2,15 @@ alert_lib CHANGELOG
 ====================
 
 - 1.0.0 | Mar 05 2026:
+  [New] Digest/spool system: _alert_spool_append for timestamped entry
+      accumulation under flock, _alert_digest_check for age-based flush
+      triggering, _alert_digest_flush for atomic spool drain with
+      consumer-provided callback; generalized from BFD with explicit
+      spool_file arguments replacing env vars and callback pattern
+      replacing hardcoded function calls
+  [New] Test suite 07-digest.bats: 25 tests covering spool append,
+      digest check, digest flush, callback invocation, epoch stripping,
+      lock behavior, and full append-check-flush integration cycle
   [New] Discord delivery: webhook (_alert_discord_webhook) with HTTP 204
       empty-body success detection, multipart file upload
       (_alert_discord_upload) in single POST with payload_json + files[0];
