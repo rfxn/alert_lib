@@ -1,0 +1,111 @@
+alert_lib CHANGELOG
+====================
+
+- 1.0.2 | Mar 06 2026:
+  [Fix] SMTP relay credentials no longer visible in process listing;
+      _alert_email_relay uses curl -K config file (chmod 600, cleaned after
+      use) instead of --user command-line argument; follows same security
+      pattern as _alert_telegram_api
+  [Fix] Webhook URLs containing embedded tokens (Slack incoming webhooks,
+      Discord webhooks) redacted in _alert_curl_post error messages;
+      new _alert_redact_url helper strips token portion from known webhook
+      URL patterns before logging to stderr
+  [Change] _alert_email_relay adds -s (silent) flag to curl for consistency
+      with _alert_curl_post and _alert_telegram_api
+  [New] Tests for SMTP config file credential hiding, URL redaction of
+      Slack/Discord webhooks, and curl_post error message verification
+
+- 1.0.1 | Mar 06 2026:
+  [New] ALERT_EMAIL_REPLY_TO env var support in _alert_email_local (html/both
+      sendmail paths) and _alert_deliver_email relay path; enables consuming
+      projects to set custom Reply-To headers for panel email delivery
+  [New] Subject CR/LF sanitization in _alert_deliver_email entry point to
+      prevent email header injection; all consumers benefit automatically
+  [New] Sendmail fallback for text format in _alert_email_local; when mail
+      binary is not available, constructs RFC 822 message and delivers via
+      sendmail with proper From/Subject/Reply-To headers
+  [New] Tests for Reply-To header in local html, local both, and relay paths;
+      tests for CR/LF stripping in local and relay delivery paths; test for
+      text format sendmail fallback
+
+- 1.0.0 | Mar 05 2026:
+  [New] README.md with full API reference, environment variables,
+      template system documentation, and usage examples
+  [New] Digest/spool system: _alert_spool_append for timestamped entry
+      accumulation under flock, _alert_digest_check for age-based flush
+      triggering, _alert_digest_flush for atomic spool drain with
+      consumer-provided callback; generalized from BFD with explicit
+      spool_file arguments replacing env vars and callback pattern
+      replacing hardcoded function calls
+  [New] Test suite 07-digest.bats: 25 tests covering spool append,
+      digest check, digest flush, callback invocation, epoch stripping,
+      lock behavior, and full append-check-flush integration cycle
+  [New] Discord delivery: webhook (_alert_discord_webhook) with HTTP 204
+      empty-body success detection, multipart file upload
+      (_alert_discord_upload) in single POST with payload_json + files[0];
+      router _alert_deliver_discord with ALERT_DISCORD_WEBHOOK_URL env var
+  [New] Discord channel handler (_alert_handle_discord) with built-in
+      channel registration (disabled by default)
+  [New] Test suite 06-discord.bats: 22 tests covering webhook delivery,
+      multipart upload, delivery router, handler, and channel registration
+  [New] Telegram delivery: sendMessage (_alert_telegram_message) with
+      MarkdownV2 parse mode, sendDocument (_alert_telegram_document) with
+      file upload and optional caption; router _alert_deliver_telegram
+      with env var config (ALERT_TELEGRAM_BOT_TOKEN, ALERT_TELEGRAM_CHAT_ID)
+  [New] Telegram API helper (_alert_telegram_api): shared curl -K config
+      file pattern keeping bot token out of process listing (chmod 600
+      temp file, rm after use); response validation with error extraction
+  [New] Telegram channel handler (_alert_handle_telegram) with built-in
+      channel registration (disabled by default)
+  [New] Test suite 05-telegram.bats: 35 tests covering API helper security
+      (token not in args, config file permissions, cleanup), sendMessage,
+      sendDocument, delivery router, handler, and channel registration
+  [New] Slack delivery: webhook (_alert_slack_webhook), bot API
+      (_alert_slack_post_message), 3-step file upload (_alert_slack_upload);
+      router _alert_deliver_slack with ALERT_SLACK_MODE webhook|bot
+  [New] HTTP utility: _alert_curl_post shared POST helper with configurable
+      timeouts (ALERT_CURL_TIMEOUT, ALERT_CURL_MAX_TIME), stderr capture,
+      and error detail logging
+  [New] URL validation: _alert_validate_url for http/https URL checking
+  [New] Slack channel handler (_alert_handle_slack) with built-in channel
+      registration (disabled by default)
+  [New] Test suite 04-slack.bats: tests covering HTTP utilities, Slack
+      webhook, bot API, 3-step upload, delivery router, handler, and
+      channel registration
+  [New] Test helper: alert_create_curl_mock and alert_create_curl_routing_mock
+      for response-aware and multi-step API curl mocking
+  [New] Channel registry: alert_channel_register, alert_channel_enable,
+      alert_channel_disable, alert_channel_enabled with parallel indexed
+      arrays and _alert_channel_find lookup helper
+  [New] Multi-channel dispatch: alert_dispatch with per-channel template
+      rendering (.text.tpl/.message.tpl/.html.tpl), custom.d/ override
+      support, comma-separated channel filtering, and fault-tolerant
+      dispatch (continues after individual channel failures)
+  [New] Email channel handler: _alert_handle_email wrapper bridging
+      standardized handler interface to _alert_deliver_email with
+      ALERT_EMAIL_TO and ALERT_EMAIL_FORMAT env var config
+  [New] Built-in email channel registration at source time (disabled
+      by default; consumers enable via alert_channel_enable "email")
+  [New] Test suite 03-registry.bats: 36 tests covering channel
+      registration, enable/disable, dispatch loop, template rendering,
+      channel filtering, error propagation, and temp file cleanup
+  [New] MIME builder: _alert_build_mime (multipart/alternative with base64
+      HTML part, ALERT_ boundary prefix, RFC 5321 compliant line lengths)
+  [New] Email delivery: _alert_email_local (mail/sendmail with format-based
+      routing and graceful fallback), _alert_email_relay (curl SMTP with
+      TLS auto-detection and optional auth), _alert_deliver_email (router:
+      ALERT_SMTP_RELAY → relay path, else → local MTA)
+  [New] Test suite 02-email.bats: 29 tests covering MIME builder, local MTA,
+      SMTP relay, delivery router, fallback chains, and error propagation
+  [New] Mock binary infrastructure in alert-common.bash: alert_mock_setup and
+      alert_create_mock for testing delivery functions without real binaries
+  [New] Template engine: _alert_tpl_render (awk-based {{VAR}} substitution,
+      mawk-compatible) and _alert_tpl_resolve (custom.d/ override resolution)
+  [New] Escaping functions: _alert_html_escape (HTML entities via sed),
+      _alert_json_escape (JSON string escaping via parameter expansion),
+      _alert_telegram_escape (MarkdownV2 19-char set via sed),
+      _alert_slack_escape (mrkdwn &amp; entity escaping via sed)
+  [New] Test suite 01-core.bats: 33 tests covering all 6 functions with
+      negative/false-positive tests for escape ordering and token matching
+  [New] Project scaffolding: library skeleton, batsman test infrastructure,
+      9-OS CI matrix, scaffold validation tests

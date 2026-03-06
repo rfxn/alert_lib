@@ -1,0 +1,12 @@
+ARG BASE_IMAGE=alert-base-ubuntu2404
+FROM ${BASE_IMAGE}
+
+# curl for HTTP API delivery tests (Slack, Telegram, Discord)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && rm -rf /var/lib/apt/lists/*
+
+COPY files/ /opt/files/
+COPY tests/ /opt/tests/
+
+WORKDIR /opt/tests
+CMD ["bats", "--formatter", "tap", "/opt/tests/"]

@@ -1,0 +1,11 @@
+ARG BASE_IMAGE=alert-base-rocky10
+FROM ${BASE_IMAGE}
+
+# curl for HTTP API delivery tests (Slack, Telegram, Discord)
+RUN dnf install -y curl && dnf clean all
+
+COPY files/ /opt/files/
+COPY tests/ /opt/tests/
+
+WORKDIR /opt/tests
+CMD ["bats", "--formatter", "tap", "/opt/tests/"]
