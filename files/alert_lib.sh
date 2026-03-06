@@ -641,6 +641,140 @@ _alert_handle_slack() {
 }
 
 # ---------------------------------------------------------------------------
+# Telegram Delivery
+# ---------------------------------------------------------------------------
+
+# _alert_telegram_api endpoint bot_token [curl_flags...] — shared Bot API helper
+# Uses curl -K (config file) to keep bot token out of the process listing.
+# Config file created with chmod 600, removed immediately after curl returns.
+# Stdout: API response body on success. Stderr: error detail on failure.
+# Returns 0 on success, 1 on failure.
+_alert_telegram_api() {
+	local endpoint="$1" bot_token="$2"
+	shift 2
+	local curl_bin
+	curl_bin=$(command -v curl 2>/dev/null || true)
+	if [ -z "$curl_bin" ]; then
+		echo "alert_lib: curl not found, cannot call Telegram API." >&2
+		return 1
+	fi
+	local cfg
+	cfg=$(mktemp "${ALERT_TMPDIR}/alert_tg_curl.XXXXXX")
+	chmod 600 "$cfg"
+	printf 'url = "https://api.telegram.org/bot%s/%s"\n' "$bot_token" "$endpoint" > "$cfg"
+	local rc=0 response
+	# 2>/dev/null on curl: -K config file interacts with stderr capture;
+	# API response JSON contains all diagnostic info needed
+	response=$("$curl_bin" -s --connect-timeout "$ALERT_CURL_TIMEOUT" \
+		--max-time "$ALERT_CURL_MAX_TIME" -K "$cfg" "$@" 2>/dev/null) || rc=$?
+	rm -f "$cfg"
+	if [ "$rc" -ne 0 ]; then
+		echo "alert_lib: Telegram API curl failed (exit $rc)." >&2
+		return 1
+	fi
+	# Check API response for success
+	case "$response" in
+		*'"ok":true'*)
+			printf '%s' "$response"
+			return 0
+			;;
+	esac
+	local api_err
+	api_err=$(printf '%s' "$response" | sed -n 's/.*"description" *: *"\([^"]*\)".*/\1/p')
+	echo "alert_lib: Telegram API error${api_err:+: $api_err}" >&2
+	return 1
+}
+
+# _alert_telegram_message text bot_token chat_id — send text via sendMessage
+# Uses MarkdownV2 parse mode. All parameters passed as form fields (-F).
+# Returns 0 on success, 1 on failure.
+_alert_telegram_message() {
+	local text="$1" bot_token="$2" chat_id="$3"
+	if [ -z "$bot_token" ]; then
+		echo "alert_lib: Telegram bot token is required." >&2
+		return 1
+	fi
+	if [ -z "$chat_id" ]; then
+		echo "alert_lib: Telegram chat_id is required." >&2
+		return 1
+	fi
+	if [ -z "$text" ]; then
+		echo "alert_lib: Telegram message text cannot be empty." >&2
+		return 1
+	fi
+	_alert_telegram_api "sendMessage" "$bot_token" \
+		-F "chat_id=$chat_id" \
+		-F "text=$text" \
+		-F "parse_mode=MarkdownV2" > /dev/null
+}
+
+# _alert_telegram_document file_path caption bot_token chat_id — send file via sendDocument
+# Extracted from LMD inline Telegram code. Caption conditionally included.
+# Returns 0 on success, 1 on failure.
+_alert_telegram_document() {
+	local file_path="$1" caption="$2" bot_token="$3" chat_id="$4"
+	if [ ! -f "$file_path" ]; then
+		echo "alert_lib: file not found: $file_path" >&2
+		return 1
+	fi
+	if [ -z "$bot_token" ]; then
+		echo "alert_lib: Telegram bot token is required." >&2
+		return 1
+	fi
+	if [ -z "$chat_id" ]; then
+		echo "alert_lib: Telegram chat_id is required." >&2
+		return 1
+	fi
+	if [ -n "$caption" ]; then
+		_alert_telegram_api "sendDocument" "$bot_token" \
+			-F "chat_id=$chat_id" \
+			-F "document=@$file_path" \
+			-F "caption=$caption" > /dev/null
+	else
+		_alert_telegram_api "sendDocument" "$bot_token" \
+			-F "chat_id=$chat_id" \
+			-F "document=@$file_path" > /dev/null
+	fi
+}
+
+# _alert_deliver_telegram payload_file [attachment_file] — route Telegram delivery
+# Reads payload_file content as message text. Sends message first, then optional
+# document attachment. Message failure stops before document attempt.
+# Nonexistent attachment file silently skipped (matches Slack pattern).
+# Returns 0 on success, 1 on failure.
+_alert_deliver_telegram() {
+	local payload_file="$1" attachment="${2:-}"
+	if [ -z "${ALERT_TELEGRAM_BOT_TOKEN:-}" ]; then
+		echo "alert_lib: ALERT_TELEGRAM_BOT_TOKEN not set." >&2
+		return 1
+	fi
+	if [ -z "${ALERT_TELEGRAM_CHAT_ID:-}" ]; then
+		echo "alert_lib: ALERT_TELEGRAM_CHAT_ID not set." >&2
+		return 1
+	fi
+	local text
+	text=$(cat "$payload_file")
+	_alert_telegram_message "$text" "$ALERT_TELEGRAM_BOT_TOKEN" "$ALERT_TELEGRAM_CHAT_ID" || return 1
+	if [ -n "$attachment" ] && [ -f "$attachment" ]; then
+		_alert_telegram_document "$attachment" "" "$ALERT_TELEGRAM_BOT_TOKEN" "$ALERT_TELEGRAM_CHAT_ID" || return 1
+	fi
+	return 0
+}
+
+# ---------------------------------------------------------------------------
+# Telegram Channel Handler
+# ---------------------------------------------------------------------------
+
+# _alert_handle_telegram subject text_file html_file [attachment]
+# Standardized handler wrapper for the Telegram channel. Passes text_file
+# as payload and attachment through to _alert_deliver_telegram.
+# Ignores subject and html_file (baked into rendered template).
+_alert_handle_telegram() {
+	local text_file="$2" attachment="${4:-}"
+	_alert_deliver_telegram "$text_file" "$attachment"
+}
+
+# ---------------------------------------------------------------------------
 # Multi-Channel Dispatch
 # ---------------------------------------------------------------------------
 
@@ -733,3 +867,4 @@ alert_dispatch() {
 # All built-in channels start disabled. Consuming projects enable the ones they need.
 alert_channel_register "email" "_alert_handle_email"
 alert_channel_register "slack" "_alert_handle_slack"
+alert_channel_register "telegram" "_alert_handle_telegram"

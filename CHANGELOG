@@ -2,6 +2,18 @@ alert_lib CHANGELOG
 ====================
 
 - 1.0.0 | Mar 05 2026:
+  [New] Telegram delivery: sendMessage (_alert_telegram_message) with
+      MarkdownV2 parse mode, sendDocument (_alert_telegram_document) with
+      file upload and optional caption; router _alert_deliver_telegram
+      with env var config (ALERT_TELEGRAM_BOT_TOKEN, ALERT_TELEGRAM_CHAT_ID)
+  [New] Telegram API helper (_alert_telegram_api): shared curl -K config
+      file pattern keeping bot token out of process listing (chmod 600
+      temp file, rm after use); response validation with error extraction
+  [New] Telegram channel handler (_alert_handle_telegram) with built-in
+      channel registration (disabled by default)
+  [New] Test suite 05-telegram.bats: 35 tests covering API helper security
+      (token not in args, config file permissions, cleanup), sendMessage,
+      sendDocument, delivery router, handler, and channel registration
   [New] Slack delivery: webhook (_alert_slack_webhook), bot API
       (_alert_slack_post_message), 3-step file upload (_alert_slack_upload);
       router _alert_deliver_slack with ALERT_SLACK_MODE webhook|bot
