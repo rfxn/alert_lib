@@ -126,6 +126,18 @@ teardown() {
 	[ ! -f "$ALERT_MOCK_DIR/sendmail_args" ]
 }
 
+@test "email_local: text without mail falls back to sendmail" {
+	rm -f "$MOCK_BIN/mail"
+	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
+	[ "$status" -eq 0 ]
+	[ -f "$ALERT_MOCK_DIR/sendmail_stdin" ]
+	[ ! -f "$ALERT_MOCK_DIR/mail_args" ]
+	local stdin_content
+	stdin_content=$(cat "$ALERT_MOCK_DIR/sendmail_stdin")
+	[[ "$stdin_content" == *"Subject: Test"* ]]
+	[[ "$stdin_content" == *"Hello plain text"* ]]
+}
+
 @test "email_local: no mail or sendmail returns 1" {
 	rm -f "$MOCK_BIN/mail" "$MOCK_BIN/sendmail"
 	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
@@ -322,4 +334,117 @@ teardown() {
 	alert_create_mock mail 1
 	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
 	[ "$status" -eq 1 ]
+}
+
+# ---------------------------------------------------------------------------
+# ALERT_EMAIL_REPLY_TO header support
+# ---------------------------------------------------------------------------
+
+@test "email_local: html format includes Reply-To when ALERT_EMAIL_REPLY_TO set" {
+	export ALERT_EMAIL_REPLY_TO="replyto@example.com"
+	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "html"
+	[ "$status" -eq 0 ]
+	local stdin_content
+	stdin_content=$(cat "$ALERT_MOCK_DIR/sendmail_stdin")
+	[[ "$stdin_content" == *"Reply-To: replyto@example.com"* ]]
+}
+
+@test "email_local: both format includes Reply-To when ALERT_EMAIL_REPLY_TO set" {
+	export ALERT_EMAIL_REPLY_TO="replyto@example.com"
+	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "both"
+	[ "$status" -eq 0 ]
+	local stdin_content
+	stdin_content=$(cat "$ALERT_MOCK_DIR/sendmail_stdin")
+	[[ "$stdin_content" == *"Reply-To: replyto@example.com"* ]]
+}
+
+@test "email_local: html format omits Reply-To when ALERT_EMAIL_REPLY_TO unset" {
+	unset ALERT_EMAIL_REPLY_TO 2>/dev/null || true
+	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "html"
+	[ "$status" -eq 0 ]
+	local stdin_content
+	stdin_content=$(cat "$ALERT_MOCK_DIR/sendmail_stdin")
+	[[ "$stdin_content" != *"Reply-To:"* ]]
+}
+
+@test "deliver_email: relay path includes Reply-To when ALERT_EMAIL_REPLY_TO set" {
+	export ALERT_SMTP_RELAY="smtps://smtp.example.com:465"
+	export ALERT_EMAIL_REPLY_TO="replyto@example.com"
+	local mock_dir="$ALERT_MOCK_DIR"
+	cat > "$MOCK_BIN/curl" <<-ENDMOCK
+	#!/bin/bash
+	printf '%s\n' "\$@" > "$mock_dir/curl_args"
+	while [ \$# -gt 0 ]; do
+		if [ "\$1" = "--upload-file" ]; then
+			cp "\$2" "$mock_dir/curl_uploaded" 2>/dev/null
+			break
+		fi
+		shift
+	done
+	exit 0
+	ENDMOCK
+	chmod +x "$MOCK_BIN/curl"
+
+	run _alert_deliver_email "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "both"
+	[ "$status" -eq 0 ]
+	[ -f "$ALERT_MOCK_DIR/curl_uploaded" ]
+	local msg
+	msg=$(cat "$ALERT_MOCK_DIR/curl_uploaded")
+	[[ "$msg" == *"Reply-To: replyto@example.com"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Subject CR/LF sanitization
+# ---------------------------------------------------------------------------
+
+@test "deliver_email: strips CR from subject" {
+	unset ALERT_SMTP_RELAY 2>/dev/null || true
+	local subj
+	subj=$(printf 'Test\rInjected')
+	run _alert_deliver_email "user@test.com" "$subj" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
+	[ "$status" -eq 0 ]
+	# Mock writes one arg per line — check subject is sanitized (CR stripped)
+	grep -qF 'TestInjected' "$ALERT_MOCK_DIR/mail_args"
+}
+
+@test "deliver_email: strips LF from subject" {
+	unset ALERT_SMTP_RELAY 2>/dev/null || true
+	local subj
+	subj=$(printf 'Test\nInjected')
+	run _alert_deliver_email "user@test.com" "$subj" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
+	[ "$status" -eq 0 ]
+	# Mock writes one arg per line — check that "TestInjected" appears as a single arg
+	# (no LF embedded within the subject value)
+	grep -qF 'TestInjected' "$ALERT_MOCK_DIR/mail_args"
+}
+
+@test "deliver_email: strips CR/LF from subject in relay path" {
+	export ALERT_SMTP_RELAY="smtps://smtp.example.com:465"
+	local mock_dir="$ALERT_MOCK_DIR"
+	cat > "$MOCK_BIN/curl" <<-ENDMOCK
+	#!/bin/bash
+	printf '%s\n' "\$@" > "$mock_dir/curl_args"
+	while [ \$# -gt 0 ]; do
+		if [ "\$1" = "--upload-file" ]; then
+			cp "\$2" "$mock_dir/curl_uploaded" 2>/dev/null
+			break
+		fi
+		shift
+	done
+	exit 0
+	ENDMOCK
+	chmod +x "$MOCK_BIN/curl"
+
+	local subj
+	subj=$(printf 'Test\r\nInjected: evil')
+	run _alert_deliver_email "user@test.com" "$subj" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "both"
+	[ "$status" -eq 0 ]
+	[ -f "$ALERT_MOCK_DIR/curl_uploaded" ]
+	local msg
+	msg=$(cat "$ALERT_MOCK_DIR/curl_uploaded")
+	[[ "$msg" == *"Subject: TestInjected: evil"* ]]
+	# No bare CR or LF in Subject line
+	local subj_line
+	subj_line=$(grep '^Subject:' "$ALERT_MOCK_DIR/curl_uploaded")
+	[[ "$subj_line" != *$'\r'* ]]
 }

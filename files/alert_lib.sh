@@ -21,7 +21,7 @@
 _ALERT_LIB_LOADED=1
 
 # shellcheck disable=SC2034
-ALERT_LIB_VERSION="1.0.0"
+ALERT_LIB_VERSION="1.0.1"
 
 # Channel registry — consuming projects populate via alert_channel_register()
 # Uses parallel indexed arrays instead of declare -A to avoid scope issues
@@ -310,12 +310,31 @@ _alert_email_local() {
 
 	case "$format" in
 		text)
-			if [ -z "$mail_bin" ]; then
-				echo "alert_lib: mail binary not found, cannot send alert to $recip." >&2
-				return 1
+			if [ -n "$mail_bin" ]; then
+				"$mail_bin" -s "$subject" "$recip" < "$text_file"
+				return $?
 			fi
-			"$mail_bin" -s "$subject" "$recip" < "$text_file"
-			return $?
+			# mail not available — fall back to sendmail
+			if [ -n "$sendmail_bin" ]; then
+				local _tmpmail
+				_tmpmail=$(mktemp "${ALERT_TMPDIR:-/tmp}/alert_text_msg.XXXXXX")
+				{
+					echo "From: $from"
+					echo "To: $recip"
+					echo "Subject: $subject"
+					if [ -n "${ALERT_EMAIL_REPLY_TO:-}" ]; then
+						echo "Reply-To: $ALERT_EMAIL_REPLY_TO"
+					fi
+					echo ""
+					cat "$text_file"
+				} > "$_tmpmail"
+				"$sendmail_bin" -t -oi < "$_tmpmail"
+				local _rc=$?
+				rm -f "$_tmpmail"
+				return $_rc
+			fi
+			echo "alert_lib: mail binary not found, cannot send alert to $recip." >&2
+			return 1
 			;;
 		html)
 			if [ -n "$sendmail_bin" ]; then
@@ -323,6 +342,9 @@ _alert_email_local() {
 					echo "From: $from"
 					echo "To: $recip"
 					echo "Subject: $subject"
+					if [ -n "${ALERT_EMAIL_REPLY_TO:-}" ]; then
+						echo "Reply-To: $ALERT_EMAIL_REPLY_TO"
+					fi
 					echo "Content-Type: text/html; charset=UTF-8"
 					echo "Content-Transfer-Encoding: base64"
 					echo ""
@@ -349,6 +371,9 @@ _alert_email_local() {
 					echo "From: $from"
 					echo "To: $recip"
 					echo "Subject: $subject"
+					if [ -n "${ALERT_EMAIL_REPLY_TO:-}" ]; then
+						echo "Reply-To: $ALERT_EMAIL_REPLY_TO"
+					fi
 					_alert_build_mime "$text_body" "$html_body"
 				} | "$sendmail_bin" -t -oi
 				return $?
@@ -428,6 +453,10 @@ _alert_email_relay() {
 _alert_deliver_email() {
 	local recip="$1" subject="$2" text_file="$3" html_file="$4" format="${5:-text}"
 
+	# Strip CR/LF to prevent email header injection
+	subject="${subject//$'\r'/}"
+	subject="${subject//$'\n'/}"
+
 	if [ -n "${ALERT_SMTP_RELAY:-}" ]; then
 		# relay path: always build full multipart MIME message
 		local from="${ALERT_SMTP_FROM:-root@$(hostname -f 2>/dev/null || hostname)}"
@@ -440,6 +469,9 @@ _alert_deliver_email() {
 			echo "From: $from"
 			echo "To: $recip"
 			echo "Subject: $subject"
+			if [ -n "${ALERT_EMAIL_REPLY_TO:-}" ]; then
+				echo "Reply-To: $ALERT_EMAIL_REPLY_TO"
+			fi
 			echo "Date: $(date -R 2>/dev/null || date)"
 			_alert_build_mime "$text_body" "$html_body"
 		} > "$msg_file"
