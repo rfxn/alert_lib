@@ -1,4 +1,6 @@
 - 1.0.0 | Mar 05 2026:
+  [New] README.md with full API reference, environment variables,
+      template system documentation, and usage examples
   [New] Digest/spool system: _alert_spool_append for timestamped entry
       accumulation under flock, _alert_digest_check for age-based flush
       triggering, _alert_digest_flush for atomic spool drain with
