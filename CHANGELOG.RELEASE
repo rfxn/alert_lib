@@ -1,13 +1,17 @@
-- 1.0.2 | Mar 06 2026:
-  [Fix] SMTP relay credentials no longer visible in process listing;
-      _alert_email_relay uses curl -K config file (chmod 600, cleaned after
-      use) instead of --user command-line argument; follows same security
-      pattern as _alert_telegram_api
-  [Fix] Webhook URLs containing embedded tokens (Slack incoming webhooks,
-      Discord webhooks) redacted in _alert_curl_post error messages;
-      new _alert_redact_url helper strips token portion from known webhook
-      URL patterns before logging to stderr
-  [Change] _alert_email_relay adds -s (silent) flag to curl for consistency
-      with _alert_curl_post and _alert_telegram_api
-  [New] Tests for SMTP config file credential hiding, URL redaction of
-      Slack/Discord webhooks, and curl_post error message verification
+- 1.0.3 | Mar 07 2026:
+  [Fix] _alert_slack_post_message channel injection replaced sed s/// with
+      awk to prevent crash when ALERT_SLACK_CHANNEL contains forward slash
+      and data corruption when it contains ampersand; awk -v avoids both
+      delimiter collision and backreference substitution
+  [Fix] _alert_digest_flush now captures subshell exit code after flock
+      timeout and propagates failure to caller; previously returned 0 on
+      lock timeout, silently discarding the flush failure
+  [Change] _alert_build_mime MIME boundary uses /dev/urandom-derived random
+      suffix instead of $$ (PID) for improved uniqueness; falls back to
+      PID if /dev/urandom is unavailable
+  [Change] Removed redundant ${ALERT_TMPDIR:-/tmp} fallback in
+      _alert_email_local text-via-sendmail path; ALERT_TMPDIR is always
+      set at global scope, consistent with all other mktemp calls
+  [Change] Added docstring to _alert_deliver_email documenting that the
+      relay path always sends multipart/alternative regardless of format
+      parameter (format only affects local MTA path)
