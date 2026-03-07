@@ -2,6 +2,16 @@ alert_lib CHANGELOG
 ====================
 
 - 1.0.3 | Mar 07 2026:
+  [New] Template examples in examples/templates/ with working email (text
+      and HTML), Slack (Block Kit JSON), Telegram (MarkdownV2), and Discord
+      (embed JSON) templates using {{VAR}} token syntax
+  [New] Integration checklist section in README with prerequisites,
+      step-by-step guide, error handling patterns, and BFD/LMD references
+  [New] Use cases section in README covering intrusion detection alerts,
+      malware detection alerts, digest/batching, and custom channel patterns
+  [New] Troubleshooting section in README with solutions for common issues:
+      dispatch failures, curl discovery, SMTP TLS, Telegram chat_id,
+      Slack channel configuration, and template rendering
   [Fix] _alert_slack_post_message channel injection replaced sed s/// with
       awk to prevent crash when ALERT_SLACK_CHANNEL contains forward slash
       and data corruption when it contains ampersand; awk -v avoids both

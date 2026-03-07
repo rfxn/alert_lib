@@ -1,7 +1,7 @@
 # alert_lib — Multi-Channel Transactional Alerting for Bash
 
 [![CI](https://github.com/rfxn/alert_lib/actions/workflows/ci.yml/badge.svg)](https://github.com/rfxn/alert_lib/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/rfxn/alert_lib)
+[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](https://github.com/rfxn/alert_lib)
 [![Bash](https://img.shields.io/badge/bash-4.1%2B-green.svg)](https://www.gnu.org/software/bash/)
 [![License](https://img.shields.io/badge/license-GPL%20v2-orange.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 
@@ -81,6 +81,99 @@ alert_dispatch "/opt/myapp/templates" "Security Alert"
 For each enabled channel, `alert_dispatch` resolves templates from the
 template directory, renders `{{VAR}}` tokens from exported environment
 variables, and calls the channel's handler function.
+
+## Integration Checklist
+
+Step-by-step guide for integrating alert_lib into a consuming project.
+
+### Prerequisites
+
+- **Bash 4.1+** (CentOS 6 ships 4.1.2 — the minimum supported version)
+- **curl** — required for Slack, Telegram, Discord, and SMTP relay delivery
+- **flock** (util-linux) — required for digest/spool concurrency control
+- **mail or sendmail** — required for local MTA email delivery (optional if
+  using SMTP relay exclusively)
+
+### Step 1 — Copy the Library
+
+Copy `alert_lib.sh` into your project's library directory. The file has no
+external dependencies beyond the prerequisites above.
+
+```bash
+cp files/alert_lib.sh /opt/myapp/lib/alert_lib.sh
+chown root:root /opt/myapp/lib/alert_lib.sh
+chmod 640 /opt/myapp/lib/alert_lib.sh
+```
+
+### Step 2 — Create Templates
+
+Create a template directory and add per-channel templates. See
+`examples/templates/` in this repository for working examples.
+
+```bash
+mkdir -p /opt/myapp/templates/custom.d
+cp examples/templates/email.text.tpl /opt/myapp/templates/
+cp examples/templates/slack.text.tpl /opt/myapp/templates/
+```
+
+Templates use `{{VAR}}` tokens replaced from exported environment variables.
+Place user-modified templates in `custom.d/` to survive upgrades.
+
+### Step 3 — Source and Configure
+
+Source the library early in your script, then set environment variables and
+enable channels before dispatching.
+
+```bash
+#!/bin/bash
+source /opt/myapp/lib/alert_lib.sh
+
+# Set delivery configuration
+export ALERT_EMAIL_TO="admin@example.com"
+export ALERT_SLACK_MODE="webhook"
+export ALERT_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../xxx"
+
+# Enable desired channels
+alert_channel_enable "email"
+alert_channel_enable "slack"
+```
+
+### Step 4 — Export Template Variables and Dispatch
+
+Export the variables referenced in your templates, then call `alert_dispatch`.
+
+```bash
+export HOSTNAME
+export EVENT_SUMMARY="Brute force detected from 198.51.100.10"
+export TIMESTAMP
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+alert_dispatch "/opt/myapp/templates" "Security Alert"
+```
+
+### Step 5 — Error Handling
+
+`alert_dispatch` returns 0 on full success, 1 if any channel failed. It
+continues dispatching after individual failures, so partial delivery is
+possible. Check the return code and handle accordingly.
+
+```bash
+if ! alert_dispatch "/opt/myapp/templates" "Alert Subject"; then
+    echo "WARNING: one or more alert channels failed" >&2
+    # Log the failure, retry later, or escalate
+fi
+```
+
+For per-channel error handling, call delivery functions directly instead of
+using `alert_dispatch`.
+
+### Reference Integrations
+
+- **BFD** — sources `alert_lib.sh` from `files/internals/`, wraps it with
+  `bfd_alert.sh` for BFD-specific template variable setup and digest
+  integration. See the BFD `files/internals/bfd_alert.sh` module.
+- **LMD** — sources `alert_lib.sh` from `$inspath/internals/`, configures
+  channels from `conf.maldet` variables, and dispatches after scan completion.
 
 ## Architecture
 
@@ -502,6 +595,101 @@ alert_dispatch "/opt/myapp/templates" "Critical Alert"
 Create a `pagerduty.text.tpl` in your template directory with the JSON
 payload structure and `{{VAR}}` tokens for your event data.
 
+## Use Cases
+
+### Intrusion Detection Alerts (BFD Pattern)
+
+Detect brute-force authentication failures, format an alert with attacker
+details, and dispatch to email and Slack simultaneously.
+
+```bash
+source /opt/myapp/lib/alert_lib.sh
+alert_channel_enable "email"
+alert_channel_enable "slack"
+
+export ALERT_EMAIL_TO="security@example.com"
+export ALERT_SLACK_MODE="webhook"
+export ALERT_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../xxx"
+
+export HOSTNAME
+export EVENT_SUMMARY="SSH brute force from 198.51.100.10: 15 failures in 300s"
+export SRC_IP="198.51.100.10"
+export FAIL_COUNT="15"
+export ACTION="Blocked via iptables for 3600 seconds"
+
+alert_dispatch "/opt/myapp/templates" "Brute Force Alert"
+```
+
+### Malware Detection Alerts (LMD Pattern)
+
+Run a malware scan, build a report from the results, and send the report
+as an email attachment with a Telegram notification.
+
+```bash
+source /opt/myapp/lib/alert_lib.sh
+alert_channel_enable "email"
+alert_channel_enable "telegram"
+
+export ALERT_EMAIL_TO="admin@example.com"
+export ALERT_TELEGRAM_BOT_TOKEN="123456:ABC-DEF..."
+export ALERT_TELEGRAM_CHAT_ID="-1001234567890"
+
+export HOSTNAME
+export EVENT_SUMMARY="Malware scan completed: 3 hits in /home/user/public_html"
+export TIMESTAMP
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+alert_dispatch "/opt/myapp/templates" "Malware Scan Report" "all" "/tmp/scan-report.txt"
+```
+
+### Digest/Batching (BFD Pattern)
+
+Accumulate frequent events into a spool file and flush them as a
+consolidated digest at a configurable interval.
+
+```bash
+source /opt/myapp/lib/alert_lib.sh
+
+# On each event: append to spool
+echo "SSH failure from ${src_ip}: ${count} attempts" > "$tmpfile"
+_alert_spool_append "$tmpfile" "/opt/myapp/tmp/alert.spool"
+
+# Periodically (e.g., from cron or main loop): check and flush
+_alert_digest_check "/opt/myapp/tmp/alert.spool" "600" "send_digest"
+
+send_digest() {
+    local flush_file="$1"
+    export EVENT_SUMMARY
+    EVENT_SUMMARY=$(cat "$flush_file")
+    alert_dispatch "/opt/myapp/templates" "Alert Digest" "email"
+}
+```
+
+### Custom Channel (PagerDuty Example)
+
+Register a handler for a service not built into alert_lib. The handler
+receives the same arguments as built-in channel handlers.
+
+```bash
+source /opt/myapp/lib/alert_lib.sh
+
+_handle_pagerduty() {
+    local subject="$1" text_file="$2"
+    local payload
+    payload=$(cat "$text_file")
+    curl -s -X POST "https://events.pagerduty.com/v2/enqueue" \
+        -H "Content-Type: application/json" \
+        -d "$payload"
+}
+
+alert_channel_register "pagerduty" "_handle_pagerduty"
+alert_channel_enable "pagerduty"
+alert_dispatch "/opt/myapp/templates" "Critical Incident"
+```
+
+Create a `pagerduty.text.tpl` in your template directory containing the
+PagerDuty Events API v2 JSON structure with `{{VAR}}` tokens.
+
 ## Testing
 
 247 tests across 8 BATS files:
@@ -547,6 +735,53 @@ source /opt/myapp/lib/alert_lib.sh
 
 No standalone CLI — alert_lib is a pure library. All configuration comes
 from environment variables set by the consuming project.
+
+## Troubleshooting
+
+### alert_dispatch returns 1
+
+`alert_dispatch` returns 1 if any enabled channel fails, but it continues
+through all channels before returning. To isolate the failing channel,
+call delivery functions directly (e.g., `_alert_deliver_slack`) and check
+their return codes. Verify that the channel's required environment variables
+are set and exported.
+
+### curl: command not found
+
+Install curl on the target system. Slack, Telegram, Discord, and SMTP relay
+all require curl for HTTP delivery. Local MTA email delivery (mail/sendmail)
+does not require curl.
+
+### SMTP TLS errors
+
+Use `smtps://host:465` for implicit TLS (port 465). For STARTTLS on port
+587, use `smtp://host:587` — curl auto-negotiates STARTTLS when the port
+is 587. Port 25 is plaintext. If curl reports certificate errors, check
+that the system CA bundle is current.
+
+### Telegram: chat_id required
+
+`ALERT_TELEGRAM_CHAT_ID` must be set to a numeric chat ID, not a username.
+To get the chat ID: send a message to your bot, then query
+`https://api.telegram.org/bot<TOKEN>/getUpdates` and read the `chat.id`
+field from the response. Group chat IDs are negative numbers (e.g.,
+`-1001234567890`).
+
+### Slack: channel not found (bot mode)
+
+In bot mode (`ALERT_SLACK_MODE=bot`), `ALERT_SLACK_CHANNEL` accepts either
+a channel ID (e.g., `C01ABCDEF`) or a channel name (e.g., `#alerts`).
+Ensure the bot has been invited to the channel. In webhook mode, the
+channel is determined by the webhook configuration and this variable is
+not used.
+
+### Template renders empty or missing values
+
+Template tokens must exactly match exported environment variable names.
+`{{EVENT_SUMMARY}}` renders from `$EVENT_SUMMARY` — the variable must be
+both set and exported (`export EVENT_SUMMARY="..."`). Unset or unexported
+variables render as empty strings. Check token names in your template
+against the variables you export before calling `alert_dispatch`.
 
 ## License
 
