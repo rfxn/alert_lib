@@ -1,27 +1,12 @@
 - 1.0.3 | Mar 07 2026:
+
   [New] Template examples in examples/templates/ with working email (text
       and HTML), Slack (Block Kit JSON), Telegram (MarkdownV2), and Discord
       (embed JSON) templates using {{VAR}} token syntax
-  [New] Integration checklist section in README with prerequisites,
-      step-by-step guide, error handling patterns, and BFD/LMD references
-  [New] Use cases section in README covering intrusion detection alerts,
-      malware detection alerts, digest/batching, and custom channel patterns
-  [New] Troubleshooting section in README with solutions for common issues:
-      dispatch failures, curl discovery, SMTP TLS, Telegram chat_id,
-      Slack channel configuration, and template rendering
-  [Fix] _alert_slack_post_message channel injection replaced sed s/// with
-      awk to prevent crash when ALERT_SLACK_CHANNEL contains forward slash
-      and data corruption when it contains ampersand; awk -v avoids both
-      delimiter collision and backreference substitution
-  [Fix] _alert_digest_flush now captures subshell exit code after flock
-      timeout and propagates failure to caller; previously returned 0 on
-      lock timeout, silently discarding the flush failure
-  [Change] _alert_build_mime MIME boundary uses /dev/urandom-derived random
-      suffix instead of $$ (PID) for improved uniqueness; falls back to
-      PID if /dev/urandom is unavailable
-  [Change] Removed redundant ${ALERT_TMPDIR:-/tmp} fallback in
-      _alert_email_local text-via-sendmail path; ALERT_TMPDIR is always
-      set at global scope, consistent with all other mktemp calls
-  [Change] Added docstring to _alert_deliver_email documenting that the
-      relay path always sends multipart/alternative regardless of format
-      parameter (format only affects local MTA path)
+  [New] README: integration checklist, use cases, and troubleshooting sections
+  [Fix] _alert_slack_post_message: replace sed s/// with awk to prevent crash
+      when ALERT_SLACK_CHANNEL contains forward slash or ampersand
+  [Fix] _alert_digest_flush: capture subshell exit code after flock timeout
+      and propagate failure; previously returned 0 on lock timeout
+  [Change] MIME boundary uses /dev/urandom-derived random suffix instead of
+      $$ (PID) for improved uniqueness
