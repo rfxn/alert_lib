@@ -222,9 +222,9 @@ teardown() {
 	echo '{"ok":true}' > "$ALERT_MOCK_DIR/curl_response"
 	run _alert_slack_post_message "$TEST_TMPDIR/payload.json" "xoxb-test-token" "#general"
 	[ "$status" -eq 0 ]
-	local args
-	args=$(cat "$ALERT_MOCK_DIR/curl_args")
-	[[ "$args" == *"Authorization: Bearer xoxb-test-token"* ]]
+	local kconfig
+	kconfig=$(cat "$ALERT_MOCK_DIR/curl_kconfig")
+	[[ "$kconfig" == *'Authorization: Bearer xoxb-test-token'* ]]
 }
 
 @test "slack_post_message: posts to chat.postMessage API" {
@@ -291,7 +291,9 @@ teardown() {
 	local args1
 	args1=$(cat "$ALERT_MOCK_DIR/curl_args_1")
 	[[ "$args1" == *"getUploadURLExternal"* ]]
-	[[ "$args1" == *"Authorization: Bearer xoxb-test-token"* ]]
+	local kconfig1
+	kconfig1=$(cat "$ALERT_MOCK_DIR/curl_kconfig_1")
+	[[ "$kconfig1" == *'Authorization: Bearer xoxb-test-token'* ]]
 
 	# Step 2 uploaded to presigned URL
 	local args2
@@ -396,7 +398,9 @@ teardown() {
 	local args
 	args=$(cat "$ALERT_MOCK_DIR/curl_args")
 	[[ "$args" == *"chat.postMessage"* ]]
-	[[ "$args" == *"Authorization: Bearer xoxb-test-token"* ]]
+	local kconfig
+	kconfig=$(cat "$ALERT_MOCK_DIR/curl_kconfig")
+	[[ "$kconfig" == *'Authorization: Bearer xoxb-test-token'* ]]
 }
 
 @test "deliver_slack: bot mode with attachment also calls _alert_slack_upload" {

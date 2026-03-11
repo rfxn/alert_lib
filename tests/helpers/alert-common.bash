@@ -118,6 +118,14 @@ alert_create_curl_routing_mock() {
 	count=$((count + 1))
 	echo "$count" > "$mock_dir/curl_call_count"
 	printf '%s\n' "$@" > "$mock_dir/curl_args_${count}"
+	# Capture -K config file contents if present
+	_prev=""
+	for _a in "$@"; do
+		if [ "$_prev" = "-K" ] && [ -f "$_a" ]; then
+			cat "$_a" > "$mock_dir/curl_kconfig_${count}"
+		fi
+		_prev="$_a"
+	done
 	cat > "$mock_dir/curl_stdin_${count}"
 	if [ -f "$mock_dir/curl_response_${count}" ]; then
 		cat "$mock_dir/curl_response_${count}"
