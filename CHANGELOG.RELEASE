@@ -1,3 +1,9 @@
+- 1.0.4 | Mar 11 2026:
+
+  [Fix] _alert_slack_post_message, _alert_slack_upload: write Slack API token
+      to a chmod 600 temp file and pass via curl -K to keep token out of
+      /proc/PID/cmdline; Telegram already used this pattern; Slack now matches
+
 - 1.0.3 | Mar 07 2026:
 
   [New] Template examples in examples/templates/ with working email (text
