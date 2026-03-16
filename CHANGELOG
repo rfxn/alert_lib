@@ -1,6 +1,27 @@
 alert_lib CHANGELOG
 ====================
 
+- 1.0.5 | Mar 16 2026:
+
+  [Fix] All rm -f calls use 'command rm -f' to bypass potential user aliases
+      on target systems; 17 instances across all delivery and cleanup paths
+  [Fix] _alert_slack_upload: JSON-escape $channels and $file_id in
+      completeUploadExternal request body; prevents malformed JSON from
+      channel names containing special characters
+  [Fix] _alert_slack_post_message: replace awk -v with ENVIRON pattern for
+      channel injection; prevents backslash interpretation in channel names
+  [Fix] _alert_html_escape: use printf '%s' output (no trailing newline) to
+      match _alert_json_escape, _alert_telegram_escape, _alert_slack_escape
+  [New] _alert_deliver_email: validate non-empty recipient at function entry
+  [New] _alert_slack_post_message: validate payload_file exists before
+      processing; matches _alert_slack_upload validation pattern
+  [New] Tests for telegram_document missing chat_id, Reply-To in text-sendmail
+      fallback, empty email recipient validation, Slack channel JSON escaping,
+      Slack payload_file guard, Slack channel backslash preservation (ENVIRON)
+  [Change] README: add ALERT_EMAIL_REPLY_TO to environment variables table,
+      add _alert_redact_url to API reference, update version badge and test
+      counts
+
 - 1.0.4 | Mar 11 2026:
 
   [Fix] _alert_slack_post_message, _alert_slack_upload: write Slack API token

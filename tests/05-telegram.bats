@@ -277,6 +277,12 @@ teardown() {
 	[[ "$output" == *"bot token is required"* ]]
 }
 
+@test "telegram_document: missing chat_id returns 1" {
+	run _alert_telegram_document "$TEST_TMPDIR/attachment.txt" "" "123456:ABC-DEF" ""
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"chat_id is required"* ]]
+}
+
 # ---------------------------------------------------------------------------
 # _alert_deliver_telegram
 # ---------------------------------------------------------------------------

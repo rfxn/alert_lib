@@ -256,6 +256,42 @@ teardown() {
 	[[ "$output" == *"Slack channel is required"* ]]
 }
 
+@test "slack_post_message: missing payload_file returns 1" {
+	run _alert_slack_post_message "/nonexistent/payload.json" "xoxb-test-token" "#general"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"payload file not found"* ]]
+}
+
+@test "slack_post_message: channel with backslash preserved via ENVIRON" {
+	echo '{"ok":true}' > "$ALERT_MOCK_DIR/curl_response"
+	local mock_dir="$ALERT_MOCK_DIR"
+	cat > "$MOCK_BIN/curl" <<-ENDMOCK
+	#!/bin/bash
+	printf '%s\n' "\$@" > "$mock_dir/curl_args"
+	while [ \$# -gt 0 ]; do
+		case "\$1" in
+			-d)
+				shift
+				if [ "\${1#@}" != "\$1" ]; then
+					cat "\${1#@}" > "$mock_dir/curl_payload"
+				fi
+				;;
+		esac
+		shift
+	done
+	cat "$mock_dir/curl_response"
+	ENDMOCK
+	chmod +x "$MOCK_BIN/curl"
+
+	run _alert_slack_post_message "$TEST_TMPDIR/payload.json" "xoxb-test-token" '#alerts\ntest'
+	[ "$status" -eq 0 ]
+	[ -f "$ALERT_MOCK_DIR/curl_payload" ]
+	local payload
+	payload=$(cat "$ALERT_MOCK_DIR/curl_payload")
+	# Backslash-n must be preserved literally, not interpreted as newline
+	[[ "$payload" == *'alerts\ntest'* ]]
+}
+
 @test "slack_post_message: cleans up modified payload temp file" {
 	echo '{"ok":true}' > "$ALERT_MOCK_DIR/curl_response"
 	run _alert_slack_post_message "$TEST_TMPDIR/payload.json" "xoxb-test-token" "#general"
@@ -371,6 +407,21 @@ teardown() {
 	local args3
 	args3=$(cat "$ALERT_MOCK_DIR/curl_args_3")
 	[[ "$args3" == *'Report \"special\"'* ]]
+}
+
+@test "slack_upload: escapes channel name in completeUploadExternal JSON" {
+	alert_create_curl_routing_mock
+	echo '{"ok":true,"upload_url":"https://files.slack.com/upload/v1/abc","file_id":"F123"}' \
+		> "$ALERT_MOCK_DIR/curl_response_1"
+	echo 'ok' > "$ALERT_MOCK_DIR/curl_response_2"
+	echo '{"ok":true}' > "$ALERT_MOCK_DIR/curl_response_3"
+
+	run _alert_slack_upload "$TEST_TMPDIR/attachment.txt" "Report" "xoxb-token" '#chan"nel'
+	[ "$status" -eq 0 ]
+	local args3
+	args3=$(cat "$ALERT_MOCK_DIR/curl_args_3")
+	# Channel double quote must be escaped in JSON
+	[[ "$args3" == *'chan\"nel'* ]]
 }
 
 # ---------------------------------------------------------------------------

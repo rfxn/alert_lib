@@ -138,6 +138,16 @@ teardown() {
 	[[ "$stdin_content" == *"Hello plain text"* ]]
 }
 
+@test "email_local: text sendmail fallback includes Reply-To when set" {
+	rm -f "$MOCK_BIN/mail"
+	export ALERT_EMAIL_REPLY_TO="replyto@example.com"
+	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
+	[ "$status" -eq 0 ]
+	local stdin_content
+	stdin_content=$(cat "$ALERT_MOCK_DIR/sendmail_stdin")
+	[[ "$stdin_content" == *"Reply-To: replyto@example.com"* ]]
+}
+
 @test "email_local: no mail or sendmail returns 1" {
 	rm -f "$MOCK_BIN/mail" "$MOCK_BIN/sendmail"
 	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
@@ -261,6 +271,12 @@ teardown() {
 # ---------------------------------------------------------------------------
 # _alert_deliver_email
 # ---------------------------------------------------------------------------
+
+@test "deliver_email: empty recipient returns 1" {
+	run _alert_deliver_email "" "Test Subject" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"recipient is required"* ]]
+}
 
 @test "deliver_email: routes to local MTA when ALERT_SMTP_RELAY unset" {
 	unset ALERT_SMTP_RELAY 2>/dev/null || true

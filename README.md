@@ -1,7 +1,7 @@
 # alert_lib — Multi-Channel Transactional Alerting for Bash
 
 [![CI](https://github.com/rfxn/alert_lib/actions/workflows/ci.yml/badge.svg)](https://github.com/rfxn/alert_lib/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](https://github.com/rfxn/alert_lib)
+[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](https://github.com/rfxn/alert_lib)
 [![Bash](https://img.shields.io/badge/bash-4.1%2B-green.svg)](https://www.gnu.org/software/bash/)
 [![License](https://img.shields.io/badge/license-GPL%20v2-orange.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 
@@ -341,6 +341,11 @@ Slack mrkdwn format.
 **`_alert_validate_url(url)`** — validate URL has `http://` or `https://`
 scheme. Returns 0 if valid, 1 otherwise.
 
+**`_alert_redact_url(url)`** — redact embedded tokens from known webhook URL
+patterns. Slack webhooks (`hooks.slack.com/services/`) and Discord webhooks
+(`discord.com/api/webhooks/`) have their final path segment replaced with
+`[REDACTED]`. Non-secret URLs pass through unchanged.
+
 **`_alert_curl_post(url, [curl_flags...])`** — HTTP POST via curl with
 standard timeouts (`ALERT_CURL_TIMEOUT`, `ALERT_CURL_MAX_TIME`). Discovers
 curl via `command -v`. Extra arguments pass through as curl flags. Returns
@@ -453,6 +458,7 @@ flock during delivery. Callback receives path to temp file with flushed entries.
 | `ALERT_SMTP_PASS` | — | SMTP relay password (optional) |
 | `ALERT_EMAIL_TO` | `root` | Email recipient address |
 | `ALERT_EMAIL_FORMAT` | `text` | Email format: `text`, `html`, or `both` |
+| `ALERT_EMAIL_REPLY_TO` | — | Reply-To header address for email delivery (all paths) |
 | `ALERT_SLACK_MODE` | `webhook` | Slack delivery mode: `webhook` or `bot` |
 | `ALERT_SLACK_WEBHOOK_URL` | — | Slack incoming webhook URL (webhook mode) |
 | `ALERT_SLACK_TOKEN` | — | Slack Bot API token (bot mode) |
@@ -692,16 +698,16 @@ PagerDuty Events API v2 JSON structure with `{{VAR}}` tokens.
 
 ## Testing
 
-247 tests across 8 BATS files:
+253 tests across 8 BATS files:
 
 | File | Tests | Coverage |
 |------|-------|----------|
 | `00-scaffold.bats` | 3 | Library loading, version, source guard |
 | `01-core.bats` | 38 | Template engine, escape functions, URL redaction, false-positive tests |
-| `02-email.bats` | 38 | MIME builder, local MTA, SMTP relay, credential hiding, delivery router |
+| `02-email.bats` | 40 | MIME builder, local MTA, SMTP relay, credential hiding, delivery router |
 | `03-registry.bats` | 36 | Channel register/enable/disable, dispatch, template rendering |
-| `04-slack.bats` | 46 | HTTP utilities, webhook, bot API, 3-step upload, error redaction |
-| `05-telegram.bats` | 35 | API helper security, sendMessage, sendDocument, handler |
+| `04-slack.bats` | 49 | HTTP utilities, webhook, bot API, 3-step upload, error redaction |
+| `05-telegram.bats` | 36 | API helper security, sendMessage, sendDocument, handler |
 | `06-discord.bats` | 23 | Webhook, multipart upload, delivery router, error redaction |
 | `07-digest.bats` | 28 | Spool append, digest check, flush, callback, integration |
 
