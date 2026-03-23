@@ -1,6 +1,12 @@
 alert_lib CHANGELOG
 ====================
 
+- 1.0.5 | Mar 23 2026:
+
+  [Change] README: restructure to rfxn documentation convention floor level;
+      add numbered sections (## 1. through ## 12.), centered badge row with
+      flat-square style, bold one-liner, copyright blockquote, ## Support section
+
 - 1.0.5 | Mar 16 2026:
 
   [Fix] All rm -f calls use 'command rm -f' to bypass potential user aliases
