@@ -502,6 +502,14 @@ _alert_deliver_email() {
 	if [ -n "${ALERT_SMTP_RELAY:-}" ]; then
 		# relay path: always build full multipart MIME message
 		local from="${ALERT_SMTP_FROM:-root@$(hostname -f 2>/dev/null || hostname)}"
+		# Defense-in-depth: strip CR/LF from all header values to prevent injection
+		recip="${recip//$'\r'/}"
+		recip="${recip//$'\n'/}"
+		from="${from//$'\r'/}"
+		from="${from//$'\n'/}"
+		local reply_to="${ALERT_EMAIL_REPLY_TO:-}"
+		reply_to="${reply_to//$'\r'/}"
+		reply_to="${reply_to//$'\n'/}"
 		local text_body html_body
 		text_body=$(cat "$text_file")
 		html_body=$(cat "$html_file")
@@ -511,8 +519,8 @@ _alert_deliver_email() {
 			echo "From: $from"
 			echo "To: $recip"
 			echo "Subject: $subject"
-			if [ -n "${ALERT_EMAIL_REPLY_TO:-}" ]; then
-				echo "Reply-To: $ALERT_EMAIL_REPLY_TO"
+			if [ -n "$reply_to" ]; then
+				echo "Reply-To: $reply_to"
 			fi
 			echo "Date: $(date -R 2>/dev/null || date)"
 			_alert_build_mime "$text_body" "$html_body"
@@ -662,8 +670,9 @@ _alert_slack_upload() {
 	file_id=$(printf '%s' "$url_response" | sed -n 's/.*"file_id" *: *"\([^"]*\)".*/\1/p')
 
 	# Validate upload URL is HTTPS (defense-in-depth: reject http, file, ftp, etc.)
+	# Case-insensitive match: MITM attacker could use any casing (${var,,} prohibited on bash 4.1)
 	case "$upload_url" in
-		https://*)
+		[hH][tT][tT][pP][sS]://*)
 			;;
 		*)
 			echo "alert_lib: Slack upload URL rejected (not https): ${upload_url:-(empty)}" >&2

@@ -13,6 +13,11 @@
       containing & or other special characters
   [New] Tests for channel JSON-escape injection, email header CR/LF stripping,
       Slack upload URL HTTPS validation, filename URL-encoding
+  [Fix] _alert_deliver_email: defense-in-depth CR/LF stripping on reply-to,
+      recip, and from in relay path; parity with _alert_email_local
+  [Fix] _alert_slack_upload: case-insensitive HTTPS validation on upload URL;
+      extended case pattern for bash 4.1 compatibility (${var,,} prohibited)
+  [New] Test for relay path Reply-To CR/LF stripping
 
 - 1.0.5 | Mar 23 2026:
 

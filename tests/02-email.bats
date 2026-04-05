@@ -464,8 +464,38 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
-# Subject CR/LF sanitization
+# Header CR/LF sanitization
 # ---------------------------------------------------------------------------
+
+@test "deliver_email: relay path strips CR/LF from Reply-To header" {
+	export ALERT_SMTP_RELAY="smtps://smtp.example.com:465"
+	export ALERT_EMAIL_REPLY_TO
+	ALERT_EMAIL_REPLY_TO=$(printf 'legit@example.com\r\nBcc: evil@attacker.com')
+	local mock_dir="$ALERT_MOCK_DIR"
+	cat > "$MOCK_BIN/curl" <<-ENDMOCK
+	#!/bin/bash
+	printf '%s\n' "\$@" > "$mock_dir/curl_args"
+	while [ \$# -gt 0 ]; do
+		if [ "\$1" = "--upload-file" ]; then
+			cp "\$2" "$mock_dir/curl_uploaded" 2>/dev/null
+			break
+		fi
+		shift
+	done
+	exit 0
+	ENDMOCK
+	chmod +x "$MOCK_BIN/curl"
+
+	run _alert_deliver_email "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "both"
+	[ "$status" -eq 0 ]
+	[ -f "$ALERT_MOCK_DIR/curl_uploaded" ]
+	local msg
+	msg=$(cat "$ALERT_MOCK_DIR/curl_uploaded")
+	# Reply-To must appear with CR/LF stripped (injection collapsed to single line)
+	[[ "$msg" == *"Reply-To: legit@example.comBcc: evil@attacker.com"* ]]
+	# Verify no Bcc header was injected as a separate line
+	! grep -q '^Bcc:' "$ALERT_MOCK_DIR/curl_uploaded"
+}
 
 @test "deliver_email: strips CR from subject" {
 	unset ALERT_SMTP_RELAY 2>/dev/null || true
