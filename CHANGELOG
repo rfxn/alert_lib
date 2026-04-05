@@ -23,6 +23,7 @@ alert_lib CHANGELOG
       URL HTTPS validation, filename URL-encoding (253 → 260)
   [Change] tests/infra: batsman 1.0.3 → 1.4.0 — file-group test splitting,
       GNU parallel on all 9 base images, grep -F fix in batsman_clean()
+  [Change] CI: batsman workflow pin v1.0.3 → v1.4.0
 
 - 1.0.5 | Mar 23 2026:
 
