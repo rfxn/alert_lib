@@ -262,7 +262,7 @@ teardown() {
 	[[ "$output" == *"payload file not found"* ]]
 }
 
-@test "slack_post_message: channel with backslash preserved via ENVIRON" {
+@test "slack_post_message: channel with backslash is JSON-escaped via ENVIRON" {
 	echo '{"ok":true}' > "$ALERT_MOCK_DIR/curl_response"
 	local mock_dir="$ALERT_MOCK_DIR"
 	cat > "$MOCK_BIN/curl" <<-ENDMOCK
@@ -288,8 +288,38 @@ teardown() {
 	[ -f "$ALERT_MOCK_DIR/curl_payload" ]
 	local payload
 	payload=$(cat "$ALERT_MOCK_DIR/curl_payload")
-	# Backslash-n must be preserved literally, not interpreted as newline
-	[[ "$payload" == *'alerts\ntest'* ]]
+	# Backslash is JSON-escaped to \\, so \n becomes \\n in the JSON payload
+	[[ "$payload" == *'alerts\\ntest'* ]]
+}
+
+@test "slack_post_message: channel with double quote is JSON-escaped" {
+	echo '{"ok":true}' > "$ALERT_MOCK_DIR/curl_response"
+	local mock_dir="$ALERT_MOCK_DIR"
+	cat > "$MOCK_BIN/curl" <<-ENDMOCK
+	#!/bin/bash
+	printf '%s\n' "\$@" > "$mock_dir/curl_args"
+	while [ \$# -gt 0 ]; do
+		case "\$1" in
+			-d)
+				shift
+				if [ "\${1#@}" != "\$1" ]; then
+					cat "\${1#@}" > "$mock_dir/curl_payload"
+				fi
+				;;
+		esac
+		shift
+	done
+	cat "$mock_dir/curl_response"
+	ENDMOCK
+	chmod +x "$MOCK_BIN/curl"
+
+	run _alert_slack_post_message "$TEST_TMPDIR/payload.json" "xoxb-test-token" '#chan"nel'
+	[ "$status" -eq 0 ]
+	[ -f "$ALERT_MOCK_DIR/curl_payload" ]
+	local payload
+	payload=$(cat "$ALERT_MOCK_DIR/curl_payload")
+	# Double quote in channel must be escaped in JSON
+	[[ "$payload" == *'chan\"nel'* ]]
 }
 
 @test "slack_post_message: cleans up modified payload temp file" {
@@ -422,6 +452,47 @@ teardown() {
 	args3=$(cat "$ALERT_MOCK_DIR/curl_args_3")
 	# Channel double quote must be escaped in JSON
 	[[ "$args3" == *'chan\"nel'* ]]
+}
+
+@test "slack_upload: rejects non-https upload URL" {
+	alert_create_curl_routing_mock
+	echo '{"ok":true,"upload_url":"http://evil.com/steal","file_id":"F123"}' \
+		> "$ALERT_MOCK_DIR/curl_response_1"
+
+	run _alert_slack_upload "$TEST_TMPDIR/attachment.txt" "Title" "xoxb-token" "#channel"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"upload URL rejected"* ]]
+	# Only 1 curl call should have been made (step 1 only, step 2 blocked)
+	local count
+	count=$(cat "$ALERT_MOCK_DIR/curl_call_count")
+	[ "$count" -eq 1 ]
+}
+
+@test "slack_upload: rejects file:// upload URL" {
+	alert_create_curl_routing_mock
+	echo '{"ok":true,"upload_url":"file:///etc/passwd","file_id":"F123"}' \
+		> "$ALERT_MOCK_DIR/curl_response_1"
+
+	run _alert_slack_upload "$TEST_TMPDIR/attachment.txt" "Title" "xoxb-token" "#channel"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"upload URL rejected"* ]]
+}
+
+@test "slack_upload: filename with special chars uses --data-urlencode" {
+	alert_create_curl_routing_mock
+	echo '{"ok":true,"upload_url":"https://files.slack.com/upload/v1/abc","file_id":"F123"}' \
+		> "$ALERT_MOCK_DIR/curl_response_1"
+	echo 'ok' > "$ALERT_MOCK_DIR/curl_response_2"
+	echo '{"ok":true}' > "$ALERT_MOCK_DIR/curl_response_3"
+
+	# Create file with & in name
+	printf 'content\n' > "$TEST_TMPDIR/report&test.txt"
+	run _alert_slack_upload "$TEST_TMPDIR/report&test.txt" "Title" "xoxb-token" "#channel"
+	[ "$status" -eq 0 ]
+	# Step 1 args should use --data-urlencode for filename
+	local args1
+	args1=$(cat "$ALERT_MOCK_DIR/curl_args_1")
+	[[ "$args1" == *"--data-urlencode"* ]]
 }
 
 # ---------------------------------------------------------------------------

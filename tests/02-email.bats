@@ -161,6 +161,34 @@ teardown() {
 	[[ "$output" == *"unknown format"* ]]
 }
 
+@test "email_local: strips CR/LF from subject in sendmail path" {
+	rm -f "$MOCK_BIN/mail"  # force sendmail path
+	local subj
+	subj=$(printf 'Test\r\nBcc: evil@attacker.com')
+	run _alert_email_local "user@test.com" "$subj" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "text"
+	[ "$status" -eq 0 ]
+	local stdin_content
+	stdin_content=$(cat "$ALERT_MOCK_DIR/sendmail_stdin")
+	# Subject line must not contain CR or LF — injection collapses to single line
+	[[ "$stdin_content" == *"Subject: TestBcc: evil@attacker.com"* ]]
+	# Must NOT have an injected Bcc header on its own line
+	! grep -q '^Bcc:' "$ALERT_MOCK_DIR/sendmail_stdin"
+}
+
+@test "email_local: strips CR/LF from Reply-To header value" {
+	rm -f "$MOCK_BIN/mail"  # force sendmail path
+	export ALERT_EMAIL_REPLY_TO
+	ALERT_EMAIL_REPLY_TO=$(printf 'legit@example.com\r\nBcc: evil@attacker.com')
+	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "html"
+	[ "$status" -eq 0 ]
+	local stdin_content
+	stdin_content=$(cat "$ALERT_MOCK_DIR/sendmail_stdin")
+	# Reply-To must appear with CR/LF stripped
+	[[ "$stdin_content" == *"Reply-To: legit@example.comBcc: evil@attacker.com"* ]]
+	# Verify no Bcc header was injected as a separate line
+	! grep -q '^Bcc:' "$ALERT_MOCK_DIR/sendmail_stdin"
+}
+
 @test "email_local: uses ALERT_SMTP_FROM for From header" {
 	export ALERT_SMTP_FROM="custom@example.com"
 	run _alert_email_local "user@test.com" "Test" "$TEST_TMPDIR/text.txt" "$TEST_TMPDIR/html.html" "html"

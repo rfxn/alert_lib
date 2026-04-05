@@ -321,6 +321,17 @@ _alert_build_mime() {
 _alert_email_local() {
 	local recip="$1" subject="$2" text_file="$3" html_file="$4" format="${5:-text}"
 	local from="${ALERT_SMTP_FROM:-root@$(hostname -f 2>/dev/null || hostname)}"
+	# Defense-in-depth: strip CR/LF from all values used in email headers
+	recip="${recip//$'\r'/}"
+	recip="${recip//$'\n'/}"
+	subject="${subject//$'\r'/}"
+	subject="${subject//$'\n'/}"
+	from="${from//$'\r'/}"
+	from="${from//$'\n'/}"
+	local reply_to="${ALERT_EMAIL_REPLY_TO:-}"
+	reply_to="${reply_to//$'\r'/}"
+	reply_to="${reply_to//$'\n'/}"
+
 	local sendmail_bin mail_bin
 	sendmail_bin=$(command -v sendmail 2>/dev/null || true)
 	mail_bin=$(command -v mail 2>/dev/null || true)
@@ -339,8 +350,8 @@ _alert_email_local() {
 					echo "From: $from"
 					echo "To: $recip"
 					echo "Subject: $subject"
-					if [ -n "${ALERT_EMAIL_REPLY_TO:-}" ]; then
-						echo "Reply-To: $ALERT_EMAIL_REPLY_TO"
+					if [ -n "$reply_to" ]; then
+						echo "Reply-To: $reply_to"
 					fi
 					echo ""
 					cat "$text_file"
@@ -359,8 +370,8 @@ _alert_email_local() {
 					echo "From: $from"
 					echo "To: $recip"
 					echo "Subject: $subject"
-					if [ -n "${ALERT_EMAIL_REPLY_TO:-}" ]; then
-						echo "Reply-To: $ALERT_EMAIL_REPLY_TO"
+					if [ -n "$reply_to" ]; then
+						echo "Reply-To: $reply_to"
 					fi
 					echo "Content-Type: text/html; charset=UTF-8"
 					echo "Content-Transfer-Encoding: base64"
@@ -388,8 +399,8 @@ _alert_email_local() {
 					echo "From: $from"
 					echo "To: $recip"
 					echo "Subject: $subject"
-					if [ -n "${ALERT_EMAIL_REPLY_TO:-}" ]; then
-						echo "Reply-To: $ALERT_EMAIL_REPLY_TO"
+					if [ -n "$reply_to" ]; then
+						echo "Reply-To: $reply_to"
 					fi
 					_alert_build_mime "$text_body" "$html_body"
 				} | "$sendmail_bin" -t -oi
@@ -577,9 +588,10 @@ _alert_slack_post_message() {
 	# Inject "channel" field after opening brace
 	# Uses awk instead of sed to avoid delimiter collision if channel
 	# contains / or & (sed s/// treats both as special characters)
-	local modified_payload
+	local modified_payload escaped_channel
 	modified_payload=$(mktemp "${ALERT_TMPDIR}/alert_slack_msg.XXXXXX")
-	ch="$channel" awk 'NR==1 && /^\{/ { print "{\"channel\":\"" ENVIRON["ch"] "\"," substr($0,2); next } { print }' \
+	escaped_channel=$(_alert_json_escape "$channel")
+	ch="$escaped_channel" awk 'NR==1 && /^\{/ { print "{\"channel\":\"" ENVIRON["ch"] "\"," substr($0,2); next } { print }' \
 		"$payload_file" > "$modified_payload"
 	# Write token to config file — keeps it out of /proc/PID/cmdline
 	local auth_cfg
@@ -634,7 +646,7 @@ _alert_slack_upload() {
 	local url_response upload_url file_id
 	url_response=$(_alert_curl_post "https://slack.com/api/files.getUploadURLExternal" \
 		-K "$auth_cfg" \
-		-d "filename=$filename" \
+		--data-urlencode "filename=$filename" \
 		-d "length=$fsize") || { command rm -f "$auth_cfg"; return 1; }
 	case "$url_response" in
 		*'"ok":true'*) ;;
@@ -648,6 +660,17 @@ _alert_slack_upload() {
 	esac
 	upload_url=$(printf '%s' "$url_response" | sed -n 's/.*"upload_url" *: *"\([^"]*\)".*/\1/p')
 	file_id=$(printf '%s' "$url_response" | sed -n 's/.*"file_id" *: *"\([^"]*\)".*/\1/p')
+
+	# Validate upload URL is HTTPS (defense-in-depth: reject http, file, ftp, etc.)
+	case "$upload_url" in
+		https://*)
+			;;
+		*)
+			echo "alert_lib: Slack upload URL rejected (not https): ${upload_url:-(empty)}" >&2
+			command rm -f "$auth_cfg"
+			return 1
+			;;
+	esac
 
 	# Step 2: upload file content to presigned URL (no auth header needed)
 	_alert_curl_post "$upload_url" -F "file=@$file_path" > /dev/null || {

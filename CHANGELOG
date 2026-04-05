@@ -1,6 +1,22 @@
 alert_lib CHANGELOG
 ====================
 
+- 1.0.5 | Apr 05 2026:
+
+  [Fix] _alert_slack_post_message: JSON-escape channel value before awk
+      interpolation; prevents JSON injection from channel names containing
+      double quotes or backslashes (mirrors _alert_slack_upload pattern)
+  [Fix] _alert_email_local: defense-in-depth CR/LF stripping on all header
+      values (recip, subject, from, reply-to); prevents header injection if
+      called outside _alert_deliver_email
+  [Fix] _alert_slack_upload: validate upload_url is HTTPS before uploading
+      file content; rejects http, file, ftp, and empty URL schemes
+  [Fix] _alert_slack_upload: use --data-urlencode for filename parameter in
+      getUploadURLExternal; prevents form parameter injection from filenames
+      containing & or other special characters
+  [New] Tests for channel JSON-escape injection, email header CR/LF stripping,
+      Slack upload URL HTTPS validation, filename URL-encoding
+
 - 1.0.5 | Mar 23 2026:
 
   [Change] README: restructure to rfxn documentation convention floor level;
