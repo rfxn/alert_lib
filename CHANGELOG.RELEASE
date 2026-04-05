@@ -18,6 +18,8 @@
   [Fix] _alert_slack_upload: case-insensitive HTTPS validation on upload URL;
       extended case pattern for bash 4.1 compatibility (${var,,} prohibited)
   [New] Test for relay path Reply-To CR/LF stripping
+  [Change] tests/infra: batsman 1.0.3 → 1.4.0 — file-group test splitting,
+      GNU parallel on all 9 base images, grep -F fix in batsman_clean()
 
 - 1.0.5 | Mar 23 2026:
 

@@ -708,15 +708,15 @@ PagerDuty Events API v2 JSON structure with `{{VAR}}` tokens.
 
 ## 11. Testing
 
-253 tests across 8 BATS files:
+260 tests across 8 BATS files:
 
 | File | Tests | Coverage |
 |------|-------|----------|
 | `00-scaffold.bats` | 3 | Library loading, version, source guard |
 | `01-core.bats` | 38 | Template engine, escape functions, URL redaction, false-positive tests |
-| `02-email.bats` | 40 | MIME builder, local MTA, SMTP relay, credential hiding, delivery router |
+| `02-email.bats` | 43 | MIME builder, local MTA, SMTP relay, credential hiding, header injection guard |
 | `03-registry.bats` | 36 | Channel register/enable/disable, dispatch, template rendering |
-| `04-slack.bats` | 49 | HTTP utilities, webhook, bot API, 3-step upload, error redaction |
+| `04-slack.bats` | 53 | HTTP utilities, webhook, bot API, 3-step upload, URL validation, error redaction |
 | `05-telegram.bats` | 36 | API helper security, sendMessage, sendDocument, handler |
 | `06-discord.bats` | 23 | Webhook, multipart upload, delivery router, error redaction |
 | `07-digest.bats` | 28 | Spool append, digest check, flush, callback, integration |
