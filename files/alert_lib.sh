@@ -21,7 +21,7 @@
 _ALERT_LIB_LOADED=1
 
 # shellcheck disable=SC2034
-ALERT_LIB_VERSION="1.0.5"
+ALERT_LIB_VERSION="1.0.6"
 
 # Channel registry — consuming projects populate via alert_channel_register()
 # Uses parallel indexed arrays instead of declare -A to avoid scope issues

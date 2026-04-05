@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/rfxn/alert_lib/actions/workflows/ci.yml"><img src="https://github.com/rfxn/alert_lib/actions/workflows/ci.yml/badge.svg?style=flat-square" alt="CI"></a>
-  <a href="CHANGELOG"><img src="https://img.shields.io/badge/version-1.0.5-blue.svg?style=flat-square" alt="Version"></a>
+  <a href="CHANGELOG"><img src="https://img.shields.io/badge/version-1.0.6-blue.svg?style=flat-square" alt="Version"></a>
   <a href="https://www.gnu.org/software/bash/"><img src="https://img.shields.io/badge/bash-4.1%2B-green.svg?style=flat-square" alt="Bash"></a>
   <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html"><img src="https://img.shields.io/badge/license-GPL%20v2-orange.svg?style=flat-square" alt="License"></a>
 </p>

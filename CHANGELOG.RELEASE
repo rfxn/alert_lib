@@ -1,4 +1,4 @@
-- 1.0.5 | Apr 05 2026:
+- 1.0.6 | Apr 05 2026:
 
   [Fix] _alert_slack_post_message: JSON-escape channel value before awk
       interpolation; prevents JSON injection from channel names containing
@@ -6,44 +6,17 @@
   [Fix] _alert_email_local: defense-in-depth CR/LF stripping on all header
       values (recip, subject, from, reply-to); prevents header injection if
       called outside _alert_deliver_email
+  [Fix] _alert_deliver_email: defense-in-depth CR/LF stripping on reply-to,
+      recip, and from in relay path; parity with _alert_email_local
   [Fix] _alert_slack_upload: validate upload_url is HTTPS before uploading
       file content; rejects http, file, ftp, and empty URL schemes
+  [Fix] _alert_slack_upload: case-insensitive HTTPS validation on upload URL;
+      extended case pattern for bash 4.1 compatibility (${var,,} prohibited)
   [Fix] _alert_slack_upload: use --data-urlencode for filename parameter in
       getUploadURLExternal; prevents form parameter injection from filenames
       containing & or other special characters
-  [New] Tests for channel JSON-escape injection, email header CR/LF stripping,
-      Slack upload URL HTTPS validation, filename URL-encoding
-  [Fix] _alert_deliver_email: defense-in-depth CR/LF stripping on reply-to,
-      recip, and from in relay path; parity with _alert_email_local
-  [Fix] _alert_slack_upload: case-insensitive HTTPS validation on upload URL;
-      extended case pattern for bash 4.1 compatibility (${var,,} prohibited)
-  [New] Test for relay path Reply-To CR/LF stripping
+  [New] Tests for security hardening: channel JSON-escape injection, email
+      header CR/LF stripping, relay path Reply-To sanitization, Slack upload
+      URL HTTPS validation, filename URL-encoding (253 → 260)
   [Change] tests/infra: batsman 1.0.3 → 1.4.0 — file-group test splitting,
       GNU parallel on all 9 base images, grep -F fix in batsman_clean()
-
-- 1.0.5 | Mar 23 2026:
-
-  [Change] README: restructure to rfxn documentation convention floor level;
-      add numbered sections (## 1. through ## 12.), centered badge row with
-      flat-square style, bold one-liner, copyright blockquote, ## Support section
-
-- 1.0.5 | Mar 16 2026:
-
-  [Fix] All rm -f calls use 'command rm -f' to bypass potential user aliases
-      on target systems; 17 instances across all delivery and cleanup paths
-  [Fix] _alert_slack_upload: JSON-escape $channels and $file_id in
-      completeUploadExternal request body; prevents malformed JSON from
-      channel names containing special characters
-  [Fix] _alert_slack_post_message: replace awk -v with ENVIRON pattern for
-      channel injection; prevents backslash interpretation in channel names
-  [Fix] _alert_html_escape: use printf '%s' output (no trailing newline) to
-      match _alert_json_escape, _alert_telegram_escape, _alert_slack_escape
-  [New] _alert_deliver_email: validate non-empty recipient at function entry
-  [New] _alert_slack_post_message: validate payload_file exists before
-      processing; matches _alert_slack_upload validation pattern
-  [New] Tests for telegram_document missing chat_id, Reply-To in text-sendmail
-      fallback, empty email recipient validation, Slack channel JSON escaping,
-      Slack payload_file guard, Slack channel backslash preservation (ENVIRON)
-  [Change] README: add ALERT_EMAIL_REPLY_TO to environment variables table,
-      add _alert_redact_url to API reference, update version badge and test
-      counts
