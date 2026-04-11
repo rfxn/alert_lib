@@ -1,3 +1,12 @@
+- 1.0.7 | Apr 11 2026:
+
+  [Change] files/alert_lib.sh: removed 32 banner separator lines
+      (section dividers). All multi-line function-header blocks inspected
+      and retained — every block documents load-bearing semantics (CVE
+      refs, injection-vector rationale, channel preconditions, out-param
+      contracts, bash 4.1 compat notes, TLS handling rules). Zero
+      functional change. Per core profile comment-discipline rule.
+
 - 1.0.6 | Apr 05 2026:
 
   [Fix] _alert_slack_post_message: JSON-escape channel value before awk
