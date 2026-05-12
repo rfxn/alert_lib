@@ -1,6 +1,21 @@
 alert_lib CHANGELOG
 ====================
 
+- 1.0.8 | May 12 2026:
+
+  [New] _alert_tpl_render: add optional escape_mode + skip_tokens params.
+      When escape_mode="telegram", substituted token values are escaped per
+      Telegram MarkdownV2 (https://core.telegram.org/bots/api#markdownv2-style)
+      via an awk-side tg_escape function — preserves literal MarkdownV2
+      markup in the template body while neutralising reserved chars
+      (_ * [ ] ( ) ~ ` > # + - = | { } . !) introduced by token substitution.
+      skip_tokens (space-separated) is the exempt set for pre-rendered
+      content (e.g., ENTRY_BLOCKS that already carries MarkdownV2 markup).
+      Tokens with _HTML or _JSON suffix are always exempt (pre-escaped at
+      source). Default escape_mode (empty) preserves existing behavior.
+      Closes LMD issue #487 — telegram delivery failed on character '(' is
+      reserved when token values contained MarkdownV2 reserved chars.
+
 - 1.0.7 | Apr 11 2026:
 
   [Change] files/alert_lib.sh: removed 32 banner separator lines

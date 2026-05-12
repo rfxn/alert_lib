@@ -1,3 +1,8 @@
+- 1.0.8 | May 12 2026:
+
+  [New] _alert_tpl_render: add escape_mode + skip_tokens params for per-channel
+      output escaping (telegram MarkdownV2). Closes LMD issue #487.
+
 - 1.0.7 | Apr 11 2026:
 
   [Change] files/alert_lib.sh: removed 32 banner separator lines
